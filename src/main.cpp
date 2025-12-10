@@ -32,11 +32,6 @@ TFT_eSprite errorspray = TFT_eSprite(&tft);
 #define AA_FONT_LARGE "NotoSansBold36"
 #define FlashFS LittleFS
 
-// RGB Backlight Pins
-#define RED_PIN 22
-#define GREEN_PIN 16
-#define BLUE_PIN 17
-
 //////////////////////////////////////////////////////////////////////////
 // Display Configuration
 //////////////////////////////////////////////////////////////////////////
@@ -461,16 +456,6 @@ void setup(void)
 pinMode(12, OUTPUT);
 digitalWrite(12, LOW);
 
-// RGB Backlight Pins konfigurieren
-pinMode(RED_PIN, OUTPUT);
-pinMode(GREEN_PIN, OUTPUT);
-pinMode(BLUE_PIN, OUTPUT);
-
-// RGB Backlight einschalten (weiß)
-digitalWrite(RED_PIN, HIGH);
-digitalWrite(GREEN_PIN, HIGH);
-digitalWrite(BLUE_PIN, HIGH);
-
 #if LED_BUILTIN
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
@@ -537,7 +522,7 @@ digitalWrite(BLUE_PIN, HIGH);
     message="Flash FS initialisation failed!";
     errorHandling(message);
   }
-  Serial.println("Flash FS available!");
+  Serial.println("\n\Flash FS available!");
 
   bool font_missing = false;
   if (LittleFS.exists("/NotoSansBold15.vlw")    == false) font_missing = true;

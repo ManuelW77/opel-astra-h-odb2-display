@@ -59,14 +59,12 @@
 // For ESP32 Dev board (only tested with ILI9341 display)
 // The hardware SPI can be mapped to any pins
 
- #define TFT_MISO 12 // Frei
- #define TFT_MOSI 13
- #define TFT_SCLK 14
- //////#define TFT_CS   17  // Chip select control pin
- #define TFT_CS   15
- #define TFT_DC   2  // Data Command control pin
- #define TFT_RST   -1  // Reset pin (could connect to RST pin)
- //#define TFT_RST  -1  // Set TFT_RST to -1 if display RESET is connected to ESP32 board RST
+ #define TFT_MISO 12  // LCD_MISO
+ #define TFT_MOSI 13  // LCD_MOSI
+ #define TFT_SCLK 14  // LCD_SCK
+ #define TFT_CS   15  // LCD_CS
+ #define TFT_DC    2  // LCD_RS (Data/Command)
+ #define TFT_RST  -1  // Set TFT_RST to -1 if display RESET is connected to ESP32 board RST
 
 //#define TFT_BL   12  // LED back-light (only for ST7789 with backlight control pin)
 
