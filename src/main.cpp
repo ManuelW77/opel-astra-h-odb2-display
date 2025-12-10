@@ -74,7 +74,7 @@ const DisplayConfig baseConfig = {
   {210, 70, 70},  // coolantMeter - oben und rechts bündig
   {35, 45, 70, 60},   // boostText - höhere Textbox für vollständigen Text
   {175, 45, 70, 60},  // coolantText - höhere Textbox für vollständigen Text
-  {130, 190, 80, 30}, // voltageText
+  {10, 190, 110, 35}, // voltageText - breiter für vollständiges "XX.X V"
   {55, 165, 185, 165, 220, 190}, // labels (Last, Coolant, Voltage) - weiter nach unten für große Gauges
   {34, 175, 72, 54}   // batteryIcon
 };
@@ -289,7 +289,7 @@ void drawVolt(float reading)
   
   // Double-Buffer: Zeichne auf Sprite statt direkt auf Display (kein Flackern!)
   volt.fillSprite(TFT_BLACK);
-  volt.loadFont(getScaledFont(), LittleFS);
+  volt.loadFont(AA_FONT_SMALL, LittleFS);  // Große Schrift (NotoSansBold36)
   volt.setTextColor(TFT_WHITE, TFT_BLACK);
   volt.setTextDatum(TL_DATUM);
   
