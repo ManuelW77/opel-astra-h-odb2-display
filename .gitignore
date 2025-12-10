@@ -1,0 +1,121 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.piopackages/
+.piopkgs/
+.platformio/
+.clang_complete
+.gcc-flags.json
+.ccls
+compile_commands.json
+.cache/
+
+# Library dependencies (wenn im lib/ Ordner installiert)
+lib/*/
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.browse.c_cpp.db*
+c_cpp_properties.json
+launch.json
+ipch/
+*.code-workspace
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+*.tmp
+*.swp
+*.swo
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+
+# Build artifacts
+build/
+dist/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.out
+*.app
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.#*
+\#*#
+.*.swp
+.*.swo
+
+# IDE/Editor files
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Backup files
+*.bak
+*.backup
+*~
+.orig
+*.rej
+
+# Dependencies
+node_modules/
+bower_components/
+
+# OS generated files
+Icon?
+.DocumentRevisions-V100
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# ESP32 specific
+firmware.bin
+firmware.elf
+bootloader.bin
+partitions.bin
+*.elf
+*.map
+spiffs.bin
+littlefs.bin
+*.img
+
+# PlatformIO build artifacts
+.pio/build/
+.pio/libdeps/
+.pio/packages/
+.pio/platforms/
+monitor_filters/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
