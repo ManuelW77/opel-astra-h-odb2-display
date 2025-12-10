@@ -16,6 +16,8 @@ TFT_eSprite boosttxt = TFT_eSprite(&tft);
 TFT_eSprite coolanttxt = TFT_eSprite(&tft);
 TFT_eSprite batteryicon = TFT_eSprite(&tft);
 TFT_eSprite volt = TFT_eSprite(&tft);
+TFT_eSprite intaketxt = TFT_eSprite(&tft);
+TFT_eSprite tripavgtxt = TFT_eSprite(&tft);
 TFT_eSprite buttonspray = TFT_eSprite(&tft);
 TFT_eSprite opellogo = TFT_eSprite(&tft);
 TFT_eSprite ui = TFT_eSprite(&tft);
@@ -49,13 +51,14 @@ struct DisplayConfig {
   // Text positions
   struct {
     int x, y, width, height;
-  } boostText, coolantText, voltageText;
+  } boostText, coolantText, voltageText, intakeText, tripAvgText;
   
   // Label positions
   struct {
     int lastX, lastY;
     int coolantX, coolantY;
     int voltageX, voltageY;
+    int intakeX, intakeY;
   } labels;
   
   // Battery icon position
@@ -74,9 +77,10 @@ const DisplayConfig baseConfig = {
   {210, 70, 70},  // coolantMeter - oben und rechts bündig
   {35, 45, 70, 60},   // boostText - höhere Textbox für vollständigen Text
   {175, 45, 70, 60},  // coolantText - höhere Textbox für vollständigen Text
-  {10, 190, 110, 35}, // voltageText - breiter für vollständiges "XX.X V"
-  {55, 165, 185, 165, 220, 190}, // labels (Last, Coolant, Voltage) - weiter nach unten für große Gauges
-  {34, 175, 72, 54}   // batteryIcon
+  {0, 200, 80, 32}, // voltageText - breiter für vollständiges "XX.X V"
+  {96, 200, 80, 32}, // intakeText - rechts neben voltage
+  {190, 200, 90, 32}, // tripAvgText - ganz rechts unten für Ø Verbrauch
+  {55, 165, 185, 165, 10, 190, 155, 190}, // labels (Last, Coolant, Voltage, Intake) - weiter nach unten für große Gauges
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -115,6 +119,16 @@ void initDisplayConfig(int displayWidth, int displayHeight) {
   displayConfig.voltageText.width = (int)(baseConfig.voltageText.width * scaleX);
   displayConfig.voltageText.height = (int)(baseConfig.voltageText.height * scaleY);
   
+  displayConfig.intakeText.x = (int)(baseConfig.intakeText.x * scaleX);
+  displayConfig.intakeText.y = (int)(baseConfig.intakeText.y * scaleY);
+  displayConfig.intakeText.width = (int)(baseConfig.intakeText.width * scaleX);
+  displayConfig.intakeText.height = (int)(baseConfig.intakeText.height * scaleY);
+  
+  displayConfig.tripAvgText.x = (int)(baseConfig.tripAvgText.x * scaleX);
+  displayConfig.tripAvgText.y = (int)(baseConfig.tripAvgText.y * scaleY);
+  displayConfig.tripAvgText.width = (int)(baseConfig.tripAvgText.width * scaleX);
+  displayConfig.tripAvgText.height = (int)(baseConfig.tripAvgText.height * scaleY);
+  
   // Scale label positions
   displayConfig.labels.lastX = (int)(baseConfig.labels.lastX * scaleX);
   displayConfig.labels.lastY = (int)(baseConfig.labels.lastY * scaleY);
@@ -122,6 +136,8 @@ void initDisplayConfig(int displayWidth, int displayHeight) {
   displayConfig.labels.coolantY = (int)(baseConfig.labels.coolantY * scaleY);
   displayConfig.labels.voltageX = (int)(baseConfig.labels.voltageX * scaleX);
   displayConfig.labels.voltageY = (int)(baseConfig.labels.voltageY * scaleY);
+  displayConfig.labels.intakeX = (int)(baseConfig.labels.intakeX * scaleX);
+  displayConfig.labels.intakeY = (int)(baseConfig.labels.intakeY * scaleY);
   
   // Scale battery icon
   displayConfig.batteryIcon.x = (int)(baseConfig.batteryIcon.x * scaleX);
@@ -228,18 +244,32 @@ typedef enum
 {
   COOLANT,
   LOAD,
-  VOLTAGE
+  VOLTAGE,
+  INTAKE_TEMP,
+  SPEED,
+  FUEL_RATE
 } obd_pid_states;
 obd_pid_states obd_state = VOLTAGE;
 
 float coolant = 0;
 float voltage = 0;
 float load = 0;
+float intakeTemp = 0;
+
+// Trip-Computer Variablen
+float tripDistance = 0;        // km
+float tripFuelUsed = 0;        // Liter
+float tripAvgConsumption = 0;  // L/100km
+float currentSpeed = 0;        // km/h
+float currentFuelRate = 0;     // L/h
+unsigned long lastTripUpdate = 0;
 
 // Vorherige Werte für Delta-Updates (verhindert unnötige Redraws)
 float prev_coolant = -999;
 float prev_voltage = -999;
 float prev_load = -999;
+float prev_intakeTemp = -999;
+float prev_tripAvg = -999;
 
 String message="";
 
@@ -294,12 +324,53 @@ void drawVolt(float reading)
   volt.setTextDatum(TL_DATUM);
   
   // Erstelle String mit angehängtem V
-  String voltString = String(reading, 1) + " V";
-  volt.drawString(voltString, 5, 5);
+  String voltString = String(reading, 1) + "V";
+  volt.drawString(voltString, 0, 5);
   volt.unloadFont();
   
   // Ein atomarer Push auf Display (kein Flackern!)
   volt.pushSprite(displayConfig.voltageText.x, displayConfig.voltageText.y);
+}
+
+void drawIntakeTemp(float reading)
+{
+  // Nur bei Änderung updaten (verhindert Flackern)
+  if (abs(reading - prev_intakeTemp) < 0.5) return;  // 0.5°C Toleranz
+  prev_intakeTemp = reading;
+  
+  // Double-Buffer: Zeichne auf Sprite statt direkt auf Display (kein Flackern!)
+  intaketxt.fillSprite(TFT_BLACK);
+  intaketxt.loadFont(AA_FONT_SMALL, LittleFS);
+  intaketxt.setTextColor(TFT_WHITE, TFT_BLACK);
+  intaketxt.setTextDatum(TL_DATUM);
+  
+  // Erstelle String mit angehängtem °C
+  String tempString = String(reading, 0) + "°C";
+  intaketxt.drawString(tempString, 5, 5);
+  intaketxt.unloadFont();
+  
+  // Ein atomarer Push auf Display (kein Flackern!)
+  intaketxt.pushSprite(displayConfig.intakeText.x, displayConfig.intakeText.y);
+}
+
+void drawTripAvg(float reading)
+{
+  // Nur bei Änderung updaten (verhindert Flackern)
+  if (abs(reading - prev_tripAvg) < 0.1) return;  // 0.1 L/100km Toleranz
+  prev_tripAvg = reading;
+  
+  // Double-Buffer: Zeichne auf Sprite statt direkt auf Display (kein Flackern!)
+  tripavgtxt.fillSprite(TFT_BLACK);
+  tripavgtxt.loadFont(AA_FONT_SMALL, LittleFS);
+  tripavgtxt.setTextColor(TFT_CYAN, TFT_BLACK);
+  tripavgtxt.setTextDatum(TL_DATUM);
+  
+  String avgString = String(reading, 1) + "L";
+  tripavgtxt.drawString(avgString, 2, 5);
+  tripavgtxt.unloadFont();
+  
+  // Ein atomarer Push auf Display (kein Flackern!)
+  tripavgtxt.pushSprite(displayConfig.tripAvgText.x, displayConfig.tripAvgText.y);
 }
 
 void ringMeterBoost(float val)
@@ -522,7 +593,7 @@ digitalWrite(12, LOW);
     message="Flash FS initialisation failed!";
     errorHandling(message);
   }
-  Serial.println("\n\Flash FS available!");
+  Serial.println("\nFlash FS available!");
 
   bool font_missing = false;
   if (LittleFS.exists("/NotoSansBold15.vlw")    == false) font_missing = true;
@@ -571,11 +642,46 @@ digitalWrite(12, LOW);
   volt.fillSprite(TFT_BLACK);
   volt.setTextColor(TFT_WHITE, TFT_BLACK);
   
+  // Intake Temp Reading - skaliert (wird nur einmal erstellt!)
+  intaketxt.setColorDepth(8);
+  intaketxt.createSprite(displayConfig.intakeText.width, displayConfig.intakeText.height);
+  intaketxt.fillSprite(TFT_BLACK);
+  intaketxt.setTextColor(TFT_WHITE, TFT_BLACK);
+  
+  // Trip Avg Reading - skaliert (wird nur einmal erstellt!)
+  tripavgtxt.setColorDepth(8);
+  tripavgtxt.createSprite(displayConfig.tripAvgText.width, displayConfig.tripAvgText.height);
+  tripavgtxt.fillSprite(TFT_BLACK);
+  tripavgtxt.setTextColor(TFT_CYAN, TFT_BLACK);
+  
   // Labels - verwende skalierte Font
   ui.loadFont(getScaledFont(), LittleFS);
-  ui.drawString("Last", displayConfig.labels.lastX-5, displayConfig.labels.lastY-10);
+  ui.drawString("Motorlast", 5, displayConfig.labels.lastY-10);
   ui.drawString("Temp.", displayConfig.labels.coolantX-5, displayConfig.labels.coolantY-10);
   ui.unloadFont();
+  
+  ui.pushSprite(0, 0, TFT_BLACK);
+  
+  // Horizontale Trennlinie zwischen oberen und unteren Labels
+  int lineY = displayConfig.labels.voltageY - 8;
+  tft.drawLine(0, lineY, displayConfig.width, lineY, TFT_DARKGREY);
+  
+  // Labels für untere Zeile - direkt auf TFT mit Built-in Font für bessere Skalierung
+  tft.setTextFont(1);  // Built-in Font 1 (6x8 pixel)
+  tft.setTextSize(1);  // Kleine Größe
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextDatum(TL_DATUM);
+  tft.drawString("Batt", displayConfig.labels.voltageX, displayConfig.labels.voltageY - 3);
+  tft.drawString("Ansaug.T", displayConfig.labels.intakeX - 35, displayConfig.labels.intakeY - 3);
+  tft.drawString("L/100", displayConfig.labels.intakeX + 27, displayConfig.labels.intakeY - 3);
+  
+  // Vertikale Trennlinien zwischen den 3 unteren Abschnitten
+  int divider1X = displayConfig.voltageText.x + displayConfig.voltageText.width;
+  int divider2X = displayConfig.intakeText.x + displayConfig.intakeText.width + 5;
+  int dividerTopY = lineY;
+  int dividerBottomY = displayConfig.height;
+  tft.drawLine(divider1X, dividerTopY, divider1X, dividerBottomY, TFT_DARKGREY);
+  tft.drawLine(divider2X, dividerTopY, divider2X, dividerBottomY, TFT_DARKGREY);
   
   // Boost Meter (linker Kreis) - hellerer Hintergrund
   tft.fillCircle(displayConfig.boostMeter.x, displayConfig.boostMeter.y, displayConfig.boostMeter.radius, GAUGE_GREY);
@@ -586,12 +692,6 @@ digitalWrite(12, LOW);
               displayConfig.boostMeter.radius - 3, displayConfig.boostMeter.radius - 3 - boostThickness, 
               30, 330, TFT_BLACK, GAUGE_GREY);
   
-  // "%" Label für Boost - skalierte Position
-  ui.loadFont(getScaledUnitFont(), LittleFS);
-  int percentX = displayConfig.boostMeter.x - (int)(9 * min((float)displayConfig.width / baseConfig.width, (float)displayConfig.height / baseConfig.height));
-  int percentY = displayConfig.boostMeter.y + displayConfig.boostMeter.radius - (int)(25 * min((float)displayConfig.width / baseConfig.width, (float)displayConfig.height / baseConfig.height));
-  ui.drawString("%", percentX - 3, percentY-5);
-  
   // Coolant Meter (rechter Kreis) - hellerer Hintergrund
   tft.fillCircle(displayConfig.coolantMeter.x, displayConfig.coolantMeter.y, displayConfig.coolantMeter.radius, GAUGE_GREY);
   tft.drawSmoothCircle(displayConfig.coolantMeter.x, displayConfig.coolantMeter.y, displayConfig.coolantMeter.radius, TFT_SILVER, GAUGE_GREY);
@@ -601,15 +701,22 @@ digitalWrite(12, LOW);
               displayConfig.coolantMeter.radius - 3, displayConfig.coolantMeter.radius - 3 - coolantThickness, 
               30, 330, TFT_BLACK, GAUGE_GREY);
   
-  // "°C" Label für Coolant - skalierte Position (verwende bereits existierende scale Variable)
+  // "%" und "°C" Labels - NACH den Gauges direkt auf TFT zeichnen (verwende bereits deklarierte scale Variable)
+  tft.loadFont(getScaledUnitFont(), LittleFS);
+  
+  // "%" Label für Boost - skalierte Position
+  int percentX = displayConfig.boostMeter.x - (int)(9 * scale);
+  int percentY = displayConfig.boostMeter.y + displayConfig.boostMeter.radius - (int)(25 * scale);
+  tft.setTextColor(TFT_WHITE, GAUGE_GREY);
+  tft.setTextDatum(TL_DATUM);
+  tft.drawString("%", percentX - 3, percentY - 5);
+  
+  // "°C" Label für Coolant - skalierte Position
   int dotX = displayConfig.coolantMeter.x - (int)(10 * scale);
   int dotY = displayConfig.coolantMeter.y + displayConfig.coolantMeter.radius - (int)(38 * scale);
-  int dotRadius = max(1, (int)(3 * scale));
-  //ui.drawSmoothCircle(dotX, dotY, dotRadius, TFT_WHITE, GAUGE_GREY);
-  ui.drawString("°C", dotX + (int)(6 * scale) - 5, percentY-5); 
+  tft.drawString("°C", dotX + (int)(6 * scale) - 6, percentY - 5);
   
-  ui.pushSprite(0, 0, TFT_BLACK);
-  ui.unloadFont();
+  tft.unloadFont();
 
     // Button Spray - skaliert
   int scaledButtonSize = getScaledTextSize(30);
@@ -641,7 +748,9 @@ void loop()
   // Demo-Modus falls ELM327 nicht verfügbar (optimiert für flüssige Updates)
   if (!elm327_ready) {
     static unsigned long lastUpdate = 0;
-    static float demoLoad = 50, demoCoolant = 80, demoVolt = 12.6;  // Startiere mit realistischen Werten
+    static float demoLoad = 50, demoCoolant = 80, demoVolt = 12.6, demoIntake = 25;  // Startiere mit realistischen Werten
+    static float demoSpeed = 50, demoFuelRate = 8.5;
+    static float demoTripDist = 0, demoTripFuel = 0;
     
     if (millis() - lastUpdate > 1000) {  // Häufigere Updates für flüssigere Demo
       // Simuliere sanftere, realistischere Wertänderungen (kleinere Sprünge)
@@ -657,15 +766,38 @@ void loop()
       if (demoVolt < 11.5) demoVolt = 11.5;
       if (demoVolt > 14.5) demoVolt = 14.5;
       
+      demoIntake += random(-1, 2) * 0.3;  // Ansaugtemperatur ändert sich langsam
+      if (demoIntake < -10) demoIntake = -10;
+      if (demoIntake > 60) demoIntake = 60;
+      
+      demoSpeed += random(-3, 4);
+      if (demoSpeed < 0) demoSpeed = 0;
+      if (demoSpeed > 130) demoSpeed = 130;
+      
+      demoFuelRate += random(-5, 6) / 10.0;
+      if (demoFuelRate < 0) demoFuelRate = 0;
+      if (demoFuelRate > 15) demoFuelRate = 15;
+      
+      demoTripDist += demoSpeed / 3600.0;
+      demoTripFuel += demoFuelRate / 3600.0;
+      
       Serial.println("DEMO MODE - Simulated values:");
       Serial.printf("LOAD: %.1f %%\n", demoLoad);
       Serial.printf("Coolant: %.1f °C\n", demoCoolant);
       Serial.printf("Battery: %.2f V\n", demoVolt);
+      Serial.printf("Intake Air: %.1f °C\n", demoIntake);
+      
+      if (demoTripDist > 0.01) {
+        float demoAvg = (demoTripFuel / demoTripDist) * 100.0;
+        Serial.printf("Trip Avg: %.1f L/100km (%.2f km, %.2f L)\n", demoAvg, demoTripDist, demoTripFuel);
+        drawTripAvg(demoAvg);
+      }
       
       // Updates erfolgen nur bei signifikanten Änderungen (dank Delta-Check)
       drawBoost(demoLoad);
       drawCoolant(demoCoolant);
       drawVolt(demoVolt);
+      drawIntakeTemp(demoIntake);
       
       lastUpdate = millis();
     }
@@ -727,15 +859,92 @@ void loop()
       Serial.print("Battery: ");
       Serial.print(battery);
       Serial.println(" V");
-      obd_state = LOAD;
+      obd_state = INTAKE_TEMP;
       drawVolt(battery);
+    }
+    else if (myELM327.nb_rx_state != ELM_GETTING_MSG)
+    {
+      myELM327.printError();
+      obd_state = INTAKE_TEMP;
+    }
+
+    break;
+  }
+
+  case INTAKE_TEMP:
+  {
+    float intakeTemp = myELM327.intakeAirTemp();
+
+    if (myELM327.nb_rx_state == ELM_SUCCESS)
+    {
+      Serial.print("Intake Air Temp: ");
+      Serial.print(intakeTemp);
+      Serial.println(" °C");
+      obd_state = SPEED;
+      drawIntakeTemp(intakeTemp);
+    }
+    else if (myELM327.nb_rx_state != ELM_GETTING_MSG)
+    {
+      myELM327.printError();
+      obd_state = SPEED;
+    }
+
+    break;
+  }
+
+  case SPEED:
+  {
+    float speed = myELM327.kph();
+    
+    if (myELM327.nb_rx_state == ELM_SUCCESS)
+    {
+      currentSpeed = speed;
+      Serial.print("Speed: ");
+      Serial.print(speed);
+      Serial.println(" km/h");
+      obd_state = FUEL_RATE;
+    }
+    else if (myELM327.nb_rx_state != ELM_GETTING_MSG)
+    {
+      myELM327.printError();
+      obd_state = FUEL_RATE;
+    }
+    break;
+  }
+
+  case FUEL_RATE:
+  {
+    float fuelRate = myELM327.fuelRate();
+    
+    if (myELM327.nb_rx_state == ELM_SUCCESS)
+    {
+      currentFuelRate = fuelRate;
+      Serial.print("Fuel Rate: ");
+      Serial.print(fuelRate);
+      Serial.println(" L/h");
+      
+      // Trip-Berechnung
+      unsigned long now = millis();
+      if (lastTripUpdate > 0) {
+        float deltaTime = (now - lastTripUpdate) / 3600000.0; // Stunden
+        
+        tripDistance += currentSpeed * deltaTime; // km
+        tripFuelUsed += currentFuelRate * deltaTime; // Liter
+        
+        if (tripDistance > 0.01) {
+          tripAvgConsumption = (tripFuelUsed / tripDistance) * 100.0;
+          drawTripAvg(tripAvgConsumption);
+        }
+      }
+      lastTripUpdate = now;
+      
+      obd_state = LOAD;
     }
     else if (myELM327.nb_rx_state != ELM_GETTING_MSG)
     {
       myELM327.printError();
       obd_state = LOAD;
     }
-
     break;
   }
   }
