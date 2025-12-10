@@ -173,6 +173,27 @@ Falls keine OBD-Verbindung besteht, läuft das Display automatisch im Demo-Modus
 
 ## 🛠️ Konfiguration
 
+### Demo-Modus Ein/Aus
+
+In [platformio.ini](platformio.ini) kann der Demo-Modus gesteuert werden:
+
+```ini
+build_flags = 
+  ; ... andere Flags ...
+  ; Demo Mode: 1 = ON (keine Fehlermeldung bei Verbindungsfehler), 0 = OFF (Reboot bei Verbindungsfehler)
+  -DDEMO_MODE=1
+```
+
+**Demo-Modus EIN** (`-DDEMO_MODE=1`, Standard):
+- Bei Verbindungsfehlern läuft das Display im Demo-Modus weiter
+- Zeigt simulierte, realistische Testdaten
+- Ideal zum Testen ohne Auto/OBD-Verbindung
+
+**Demo-Modus AUS** (`-DDEMO_MODE=0`):
+- Bei Verbindungsfehlern wird eine Fehlermeldung angezeigt
+- Countdown von 30 Sekunden bis zum automatischen Neustart
+- Für den Produktivbetrieb im Fahrzeug empfohlen
+
 ### Display-Anpassungen
 
 Die Display-Konfiguration erfolgt über [src/main.cpp](src/main.cpp):

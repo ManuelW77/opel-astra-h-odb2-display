@@ -317,10 +317,20 @@ void drawVolt(float reading)
   if (abs(reading - prev_voltage) < 0.05) return;  // 50mV Toleranz
   prev_voltage = reading;
   
+  // Bestimme Farbe basierend auf Spannung
+  uint16_t textColor;
+  if (reading < 12.4) {
+    textColor = TFT_RED;     // unter 12,4V: rot
+  } else if (reading >= 12.4 && reading <= 13.8) {
+    textColor = TFT_CYAN;    // 12,4 - 13,8V: hellblau
+  } else {
+    textColor = TFT_GREEN;   // über 13,8V: grün
+  }
+  
   // Double-Buffer: Zeichne auf Sprite statt direkt auf Display (kein Flackern!)
   volt.fillSprite(TFT_BLACK);
   volt.loadFont(AA_FONT_SMALL, LittleFS);  // Große Schrift (NotoSansBold36)
-  volt.setTextColor(TFT_WHITE, TFT_BLACK);
+  volt.setTextColor(textColor, TFT_BLACK);
   volt.setTextDatum(TL_DATUM);
   
   // Erstelle String mit angehängtem V
@@ -338,10 +348,20 @@ void drawIntakeTemp(float reading)
   if (abs(reading - prev_intakeTemp) < 0.5) return;  // 0.5°C Toleranz
   prev_intakeTemp = reading;
   
+  // Bestimme Farbe basierend auf Temperatur
+  uint16_t textColor;
+  if (reading < 20) {
+    textColor = TFT_CYAN;    // unter 20°C: hellblau
+  } else if (reading >= 20 && reading <= 40) {
+    textColor = TFT_GREEN;   // 20-40°C: grün
+  } else {
+    textColor = TFT_RED;     // über 40°C: rot
+  }
+  
   // Double-Buffer: Zeichne auf Sprite statt direkt auf Display (kein Flackern!)
   intaketxt.fillSprite(TFT_BLACK);
   intaketxt.loadFont(AA_FONT_SMALL, LittleFS);
-  intaketxt.setTextColor(TFT_WHITE, TFT_BLACK);
+  intaketxt.setTextColor(textColor, TFT_BLACK);
   intaketxt.setTextDatum(TL_DATUM);
   
   // Erstelle String mit angehängtem °C
@@ -359,10 +379,20 @@ void drawTripAvg(float reading)
   if (abs(reading - prev_tripAvg) < 0.1) return;  // 0.1 L/100km Toleranz
   prev_tripAvg = reading;
   
+  // Bestimme Farbe basierend auf Verbrauch
+  uint16_t textColor;
+  if (reading < 8.0) {
+    textColor = TFT_GREEN;   // unter 8L: grün
+  } else if (reading >= 8.0 && reading <= 10.0) {
+    textColor = TFT_ORANGE;  // 8-10L: orange
+  } else {
+    textColor = TFT_RED;     // über 10L: rot
+  }
+  
   // Double-Buffer: Zeichne auf Sprite statt direkt auf Display (kein Flackern!)
   tripavgtxt.fillSprite(TFT_BLACK);
   tripavgtxt.loadFont(AA_FONT_SMALL, LittleFS);
-  tripavgtxt.setTextColor(TFT_CYAN, TFT_BLACK);
+  tripavgtxt.setTextColor(textColor, TFT_BLACK);
   tripavgtxt.setTextDatum(TL_DATUM);
   
   String avgString = String(reading, 1) + "L";
@@ -371,6 +401,43 @@ void drawTripAvg(float reading)
   
   // Ein atomarer Push auf Display (kein Flackern!)
   tripavgtxt.pushSprite(displayConfig.tripAvgText.x, displayConfig.tripAvgText.y);
+}
+
+// Motorlast-Farbverlauf Funktion
+uint16_t getLoadColor(float load) {
+  if (load <= 30) {
+    return TFT_CYAN;  // 0-30%: cyan/hellblau
+  }
+  else if (load > 30 && load <= 60) {
+    // Übergang von Cyan zu Grün (30-60%)
+    float factor = (load - 30) / 30.0;  // 0.0 bis 1.0
+    // Interpolation zwischen Cyan (0x07FF) und Grün (0x07E0)
+    uint8_t r = 0;
+    uint8_t g = 63;  // Grün bleibt voll
+    uint8_t b = (uint8_t)((1.0 - factor) * 31);  // Blau von 31 auf 0
+    return (r << 11) | (g << 5) | b;
+  }
+  else if (load > 60 && load <= 80) {
+    // Übergang von Grün zu Orange (60-80%)
+    float factor = (load - 60) / 20.0;  // 0.0 bis 1.0
+    // Interpolation zwischen Grün (0x07E0) und Orange (0xFD20)
+    uint8_t r = (uint8_t)(factor * 31);  // Rot von 0 auf 31
+    uint8_t g = 63;  // Grün bleibt voll
+    uint8_t b = 0;
+    return (r << 11) | (g << 5) | b;
+  }
+  else if (load > 80 && load <= 100) {
+    // Übergang von Orange zu Rot (80-100%)
+    float factor = (load - 80) / 20.0;  // 0.0 bis 1.0
+    // Interpolation zwischen Orange (0xFD20) und Rot (0xF800)
+    uint8_t r = 31;  // Rot bleibt voll
+    uint8_t g = (uint8_t)((1.0 - factor) * 63);  // Grün von 63 auf 0
+    uint8_t b = 0;
+    return (r << 11) | (g << 5) | b;
+  }
+  else {
+    return TFT_RED;  // Über 100%
+  }
 }
 
 void ringMeterBoost(float val)
@@ -405,14 +472,22 @@ void ringMeterBoost(float val)
     if (r < 25)
       thickness = r / 3;
 
-    // Update the arc, only the zone between last_angle and new val_angle is updated
+    // Update the arc mit Farbverlauf basierend auf Last
     if (val_angle > last_angle_boost)
     {
-      tft.drawArc(x, y, r, r - thickness, last_angle_boost, val_angle, TFT_GOLD, TFT_BLACK);
+      // Zeichne nur den neuen Bereich mit Farbverlauf
+      int segment_size = 3;
+      for (int angle = last_angle_boost; angle < val_angle; angle += segment_size) {
+        int end_angle = min(angle + segment_size, (int)val_angle);
+        float load_at_angle = map(angle, 30, 330, 0, 100);
+        uint16_t segment_color = getLoadColor(load_at_angle);
+        tft.drawArc(x, y, r, r - thickness, angle, end_angle, segment_color, TFT_BLACK, true);
+      }
     }
     else
     {
-      tft.drawArc(x, y, r, r - thickness, val_angle, last_angle_boost, TFT_BLACK, GAUGE_GREY);
+      // Lösche nur den reduzierten Bereich
+      tft.drawArc(x, y, r, r - thickness, val_angle, last_angle_boost, TFT_BLACK, GAUGE_GREY, true);
     }
     last_angle_boost = val_angle; // Store meter arc position for next redraw
   }
@@ -511,6 +586,79 @@ void errorHandling(String message)
   ESP.restart();
 }
 
+// Funktion für Verbindungsfehler-Behandlung mit Countdown
+void connectionErrorHandling(String message)
+{
+#if DEMO_MODE == 1
+  // Demo-Modus aktiv: Keine Fehlermeldung, läuft im Demo-Modus weiter
+  DEBUG_PORT.println("Demo Mode: Connection error ignored, running in demo mode");
+  return;
+#else
+  // Demo-Modus deaktiviert: Fehlermeldung und Reboot nach 30 Sekunden
+  pinMode(12, OUTPUT);
+  digitalWrite(12, LOW);
+
+  tft.begin();
+  tft.setRotation(1);
+  tft.setSwapBytes(true);
+  tft.fillScreen(TFT_BLACK);
+
+  digitalWrite(12, HIGH);
+
+  errorspray.setColorDepth(8);
+  errorspray.createSprite(displayConfig.width, displayConfig.height);
+  errorspray.setSwapBytes(true);
+  errorspray.setTextWrap(true, true);
+  errorspray.setTextDatum(MC_DATUM);  // Text mittig zentriert
+  
+  // Countdown von 30 Sekunden (runterzählend!)
+  for (int countdown = 30; countdown > 0; countdown--) {
+    // Komplett neu zeichnen für sauberen Wechsel
+    errorspray.fillSprite(TFT_BLACK);
+    
+    // FEHLER! - ganz groß und fett oben mit Skalierung
+    errorspray.loadFont(AA_FONT_LARGE, LittleFS);
+    errorspray.setTextSize(2);  // Doppelte Größe!
+    errorspray.setTextColor(TFT_RED, TFT_BLACK);
+    int errorY = displayConfig.height / 6;
+    errorspray.drawString("FEHLER!", displayConfig.width / 2, errorY);
+    errorspray.setTextSize(1);  // Zurücksetzen
+    errorspray.unloadFont();
+    
+    // "Neustart in" Text - größer mit Skalierung
+    errorspray.loadFont(AA_FONT_LARGE, LittleFS);
+    errorspray.setTextSize(2);
+    errorspray.setTextColor(TFT_CYAN, TFT_BLACK);
+    int labelY = displayConfig.height / 2;
+    errorspray.drawString("Neustart in", displayConfig.width / 2, labelY);
+    errorspray.unloadFont();
+    
+    // Countdown extra groß mit 3-facher Skalierung - zweistellig formatieren
+    errorspray.loadFont(AA_FONT_LARGE, LittleFS);
+    errorspray.setTextSize(3);  // 3-fache Größe für Countdown!
+    errorspray.setTextColor(TFT_YELLOW, TFT_BLACK);
+    String countdownText;
+    if (countdown < 10) {
+      countdownText = "0" + String(countdown);  // Führende Null für einstellige Zahlen
+    } else {
+      countdownText = String(countdown);
+    }
+    int countdownY = displayConfig.height / 2 + 40;
+    errorspray.drawString(countdownText, displayConfig.width / 2, countdownY);
+    errorspray.setTextSize(1);  // Zurücksetzen
+    errorspray.unloadFont();
+    
+    // Sprite auf Display zeichnen
+    errorspray.pushSprite(0, 0);
+    
+    delay(1000);
+  }
+  
+  DEBUG_PORT.println("Rebooting due to connection error...");
+  ESP.restart();
+#endif
+}
+
 //////////////////////////////////////////////////////////////////////////
 // Build Constructor
 //////////////////////////////////////////////////////////////////////////
@@ -566,7 +714,7 @@ digitalWrite(12, LOW);
   {
     DEBUG_PORT.println(F("Couldn't connect to OBD scanner - Phase 1"));
     elm327_ready = false;
-    DEBUG_PORT.println("Running in demo mode due to connection failure");
+    connectionErrorHandling("Bluetooth Verbindung fehlgeschlagen!");
   }
   else 
   {
@@ -579,7 +727,7 @@ digitalWrite(12, LOW);
     {
       DEBUG_PORT.println(F("Couldn't connect to OBD scanner - Phase 2"));
       elm327_ready = false;
-      DEBUG_PORT.println("Running in demo mode due to ELM327 init failure");
+      connectionErrorHandling("ELM327 Initialisierung fehlgeschlagen!");
     }
     else 
     {
