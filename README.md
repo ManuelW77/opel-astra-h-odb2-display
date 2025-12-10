@@ -9,15 +9,15 @@ Dieses Projekt verwandelt einen ESP32-Mikrocontroller mit TFT-Display in ein pro
 ### Features
 
 - **Live-Motordaten:**
-  - Motorlast (0-100%) mit Rundinstrument
+  - Motorlast (0-100%) mit Rundinstrument und Farbverlauf (Cyan → Grün → Orange → Rot)
   - Kühlmitteltemperatur (0-125°C) mit Farbverlauf (Blau → Grün → Rot)
-  - Batteriespannung (V)
-  - Ansauglufttemperatur (°C)
-  - Durchschnittsverbrauch (L/100km)
+  - Batteriespannung (V) mit Farbcodierung
+  - Ansauglufttemperatur (°C) mit Farbcodierung
+  - Durchschnittsverbrauch (L/100km) mit Farbcodierung
   
 - **Intelligente Anzeige:**
   - Optimierte Ring-Meter mit Anti-Flacker-Technologie
-  - Farbcodierte Temperaturanzeige
+  - Farbcodierte Anzeigen für alle relevanten Parameter
   - Delta-Updates (nur bei Wertänderung)
   - Skalierbare UI für verschiedene Display-Größen
 
@@ -165,11 +165,35 @@ Falls keine OBD-Verbindung besteht, läuft das Display automatisch im Demo-Modus
 └──────────────────────────────────────┘
 ```
 
-- **Links oben:** Motorlast (Ring-Meter mit Prozent)
-- **Rechts oben:** Kühlmitteltemperatur (Farbcodiert)
-- **Unten links:** Batteriespannung
-- **Unten mitte:** Ansauglufttemperatur
-- **Unten rechts:** Ø Verbrauch (Trip-Computer)
+### Anzeigen und Farbcodierung
+
+- **Links oben - Motorlast (Ring-Meter):**
+  - 🔵 0-30%: Cyan (niedriger Bereich)
+  - 🟢 30-60%: Grün (normaler Bereich)
+  - 🟠 60-80%: Orange (erhöhter Bereich)
+  - 🔴 80-100%: Rot (hoher Bereich)
+  - Fließende Farbübergänge zwischen den Bereichen
+
+- **Rechts oben - Kühlmitteltemperatur (Ring-Meter):**
+  - 🔵 0-50°C: Blau (Motor kalt)
+  - 🟢 60-80°C: Grün (Betriebstemperatur)
+  - 🔴 90-125°C: Rot (Überhitzung)
+  - Fließende Farbübergänge zwischen den Bereichen
+
+- **Unten links - Batteriespannung:**
+  - 🔴 < 12,4V: Rot (niedrige Spannung)
+  - 🔵 12,4-13,8V: Cyan (Normalbetrieb)
+  - 🟢 > 13,8V: Grün (Ladevorgang)
+
+- **Unten mitte - Ansauglufttemperatur:**
+  - 🔵 < 20°C: Cyan (kalte Ansaugluft)
+  - 🟢 20-40°C: Grün (optimaler Bereich)
+  - 🔴 > 40°C: Rot (warme Ansaugluft)
+
+- **Unten rechts - Ø Verbrauch (Trip-Computer):**
+  - 🟢 < 8L/100km: Grün (sparsam)
+  - 🟠 8-10L/100km: Orange (normal)
+  - 🔴 > 10L/100km: Rot (hoher Verbrauch)
 
 ## 🛠️ Konfiguration
 
