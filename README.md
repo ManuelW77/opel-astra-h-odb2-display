@@ -38,16 +38,31 @@ Dieses Projekt verwandelt einen ESP32-Mikrocontroller mit TFT-Display in ein pro
 
 | ESP32 Pin | TFT Signal | Funktion            |
 |-----------|------------|---------------------|
-| GPIO 13   | MOSI       | SPI Data Out        |
-| GPIO 14   | SCLK       | SPI Clock           |
-| GPIO 15   | CS         | Chip Select         |
-| GPIO 2    | DC         | Data/Command Select |
+| GPIO 23   | MOSI       | SPI Data Out        |
+| GPIO 18   | SCLK       | SPI Clock           |
+| GPIO 17   | CS         | Chip Select         |
+| GPIO 4    | DC         | Data/Command Select |
 | -         | RST        | Reset (nicht belegt)|
 | GPIO 12   | BL         | Backlight Control   |
 | GND       | GND        | Ground              |
 | 3.3V      | VCC        | Power Supply        |
 
-**Hinweis:** MISO (GPIO 12) wird nicht verwendet, da das Display keine Daten zurücksendet.
+**Hinweis:** MISO wird nicht verwendet, da das Display keine Daten zurücksendet.
+
+### Pin-Belegung (ESP32-S2 → ST7789 Display)
+
+| ESP32-S2 Pin | TFT Signal | Funktion            |
+|--------------|------------|---------------------|
+| GPIO 35      | MOSI       | SPI Data Out        |
+| GPIO 36      | SCLK       | SPI Clock           |
+| GPIO 34      | CS         | Chip Select         |
+| GPIO 37      | DC         | Data/Command Select |
+| -            | RST        | Reset (nicht belegt)|
+| GPIO 33      | BL         | Backlight Control   |
+| GND          | GND        | Ground              |
+| 3.3V         | VCC        | Power Supply        |
+
+**Wichtig für ESP32-S2:** Der ESP32-S2 unterstützt nur Bluetooth Low Energy (BLE), nicht Bluetooth Classic. Für die Verwendung mit ELM327 wird ein BLE-fähiger Adapter oder eine serielle Verbindung (UART) benötigt.
 
 ### SPI-Konfiguration
 
