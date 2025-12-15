@@ -79,7 +79,7 @@ const DisplayConfig baseConfig = {
   {175, 45, 70, 60},  // coolantText - höhere Textbox für vollständigen Text
   {0, 200, 80, 32}, // voltageText - breiter für vollständiges "XX.X V"
   {96, 200, 80, 32}, // intakeText - rechts neben voltage
-  {190, 200, 90, 32}, // tripAvgText - ganz rechts unten für Ø Verbrauch
+  {195, 200, 90, 32}, // tripAvgText - ganz rechts unten für Ø Verbrauch
   {55, 165, 185, 165, 10, 190, 155, 190}, // labels (Last, Coolant, Voltage, Intake) - weiter nach unten für große Gauges
 };
 
@@ -280,24 +280,21 @@ void(* resetFunc) (void) = 0;
 // Temperatur-Farbverlauf Funktion
 uint16_t getTemperatureColor(float temp) {
   // Definiere die Temperaturbereiche und Farben
-  if (temp <= 50) {
-    return TFT_BLUE;
+  if (temp < 10) {
+    return TFT_BLUE;  // unter 10°C: blau
   } 
-  else if (temp >= 50 && temp <= 60) {
-    // Übergang von Blau zu Grün (50-70°C)
-    float factor = (temp - 50) / 20.0;  // 0.0 bis 1.0
+  else if (temp >= 10 && temp <= 80) {
+    // Durchgehender Übergang von Blau zu Grün (10-80°C)
+    float factor = (temp - 10) / 70.0;  // 0.0 bis 1.0
     // Interpolation zwischen Blau (0x001F) und Grün (0x07E0)
     uint8_t r = 0;
     uint8_t g = (uint8_t)(factor * 63);  // Grün von 0 auf 63
     uint8_t b = (uint8_t)((1.0 - factor) * 31);  // Blau von 31 auf 0
     return (r << 11) | (g << 5) | b;
   }
-  else if (temp >= 60 && temp <= 80) {
-    return TFT_GREEN;
-  }
-  else if (temp >= 80 && temp <= 90) {
-    // Übergang von Grün zu Rot (80-100°C)
-    float factor = (temp - 80) / 20.0;  // 0.0 bis 1.0
+  else if (temp > 80 && temp <= 110) {
+    // Durchgehender Übergang von Grün zu Rot (80-110°C)
+    float factor = (temp - 80) / 30.0;  // 0.0 bis 1.0
     // Interpolation zwischen Grün (0x07E0) und Rot (0xF800)
     uint8_t r = (uint8_t)(factor * 31);  // Rot von 0 auf 31
     uint8_t g = (uint8_t)((1.0 - factor) * 63);  // Grün von 63 auf 0
@@ -305,7 +302,7 @@ uint16_t getTemperatureColor(float temp) {
     return (r << 11) | (g << 5) | b;
   }
   else {
-    return TFT_RED;  // Über 100°C
+    return TFT_RED;  // über 110°C: rot
   }
 }
 
@@ -888,7 +885,7 @@ void loop()
       
       demoCoolant += random(-1, 2) * 0.5;  // Noch kleinere Temperaturänderungen
       if (demoCoolant < 0) demoCoolant = 0;
-      if (demoCoolant > 110) demoCoolant = 110;
+      if (demoCoolant > 120) demoCoolant = 120;
       
       demoVolt += random(-5, 6) / 100.0;  // Kleinere Spannungsänderungen
       if (demoVolt < 11.5) demoVolt = 11.5;
