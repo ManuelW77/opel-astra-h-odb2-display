@@ -272,10 +272,389 @@ float prev_avgFuelEconomy = -999;
 String message="";
 
 //////////////////////////////////////////////////////////////////////////
+// Motor-Aus-Erkennung und DTC (Fehlerspeicher) Variablen
+//////////////////////////////////////////////////////////////////////////
+
+// Ignition Detection Variablen (Option B: Spannungsbasiert)
+bool engineRunning = false;
+bool previousEngineRunning = false;
+unsigned long engineOffTime = 0;
+const unsigned long ENGINE_OFF_DELAY = 3000;  // 3 Sekunden Verzögerung zur Sicherheit
+const float VOLTAGE_THRESHOLD_RUNNING = 13.0;  // >= 13.0V = Lichtmaschine läuft (Motor an)
+const float LOAD_THRESHOLD_RUNNING = 5.0;      // Last > 5% = Motor läuft definitiv
+
+// DTC (Diagnostic Trouble Code) Variablen
+String dtcCodes[10];  // Max 10 Fehler speichern
+int dtcCount = 0;
+bool dtcScreenActive = false;
+unsigned long dtcScreenStartTime = 0;
+const unsigned long DTC_SCREEN_DURATION = 15000;  // 15 Sekunden DTC-Anzeige
+
+//////////////////////////////////////////////////////////////////////////
 // Functions
 //////////////////////////////////////////////////////////////////////////
 
 void(* resetFunc) (void) = 0;
+
+// Forward Declarations (Funktionen die später definiert sind)
+void drawBoost(float load);
+void drawCoolant(float reading);
+
+//////////////////////////////////////////////////////////////////////////
+// Motor-Status-Erkennung (Option B: Spannungsbasiert)
+//////////////////////////////////////////////////////////////////////////
+
+// Prüfe ob Motor läuft basierend auf Bordspannung und Motorlast
+bool isEngineRunning() {
+  // Methode 1: Spannungs-basiert (Hauptkriterium)
+  // Lichtmaschine läuft: >= 13.0V, Motor aus: < 13.0V
+  if (voltage >= VOLTAGE_THRESHOLD_RUNNING) {
+    return true;
+  }
+  
+  // Methode 2: Zusätzlicher Check - Hohe Motorlast = Motor läuft definitiv
+  // Selbst wenn Spannung kurzzeitig niedrig (z.B. Anlasser)
+  if (load > LOAD_THRESHOLD_RUNNING) {
+    return true;
+  }
+  
+  return false;  // Motor aus: Spannung < 13V UND Last niedrig
+}
+
+//////////////////////////////////////////////////////////////////////////
+// DTC-Fehlerspeicher auslesen
+//////////////////////////////////////////////////////////////////////////
+
+void readDTCs() {
+  DEBUG_PORT.println("Reading DTCs from vehicle...");
+  
+  dtcCount = 0;  // Zurücksetzen
+  
+  // Manuelle DTC-Abfrage über AT-Command
+  // ELM327 Command "03" = Request stored DTCs
+  ELM_PORT.print("03\r");
+  
+  delay(500);  // Warte auf Antwort
+  
+  String response = "";
+  unsigned long timeout = millis() + 2000;  // 2 Sekunden Timeout
+  
+  while (millis() < timeout) {
+    if (ELM_PORT.available()) {
+      char c = ELM_PORT.read();
+      response += c;
+      
+      // Wenn '>' empfangen: Antwort komplett
+      if (c == '>') {
+        break;
+      }
+    }
+  }
+  
+  DEBUG_PORT.print("DTC Response: ");
+  DEBUG_PORT.println(response);
+  
+  // Parse DTC Response
+  // Format: "43 01 33 00 00 00 00" = 1 DTC: P0133
+  // Erste Byte "43" = Mode 3 Response
+  // Zweite Byte = Anzahl DTCs
+  
+  if (response.indexOf("43") >= 0) {
+    // Extrahiere Anzahl DTCs (Byte nach "43")
+    int pos = response.indexOf("43");
+    if (pos >= 0 && response.length() > pos + 5) {
+      String countStr = response.substring(pos + 3, pos + 5);
+      dtcCount = strtol(countStr.c_str(), NULL, 16);
+      
+      DEBUG_PORT.print("Found ");
+      DEBUG_PORT.print(dtcCount);
+      DEBUG_PORT.println(" DTCs");
+      
+      // Parse einzelne DTCs (jeder DTC = 2 Bytes = 4 Hex-Zeichen)
+      if (dtcCount > 0 && dtcCount <= 10) {
+        int dtcPos = pos + 6;  // Position nach "43 XX "
+        
+        for (int i = 0; i < dtcCount && i < 10; i++) {
+          if (response.length() >= dtcPos + 4) {
+            String dtcHex = response.substring(dtcPos, dtcPos + 4);
+            dtcHex.trim();
+            
+            // Konvertiere Hex zu DTC-Code (z.B. "0133" -> "P0133")
+            // Erste 2 Bits bestimmen Typ: 00=P, 01=C, 10=B, 11=U
+            int firstByte = strtol(dtcHex.substring(0, 2).c_str(), NULL, 16);
+            int secondByte = strtol(dtcHex.substring(2, 4).c_str(), NULL, 16);
+            
+            char dtcType = 'P';  // Default: Powertrain
+            int typeCode = (firstByte >> 6) & 0x03;
+            if (typeCode == 1) dtcType = 'C';      // Chassis
+            else if (typeCode == 2) dtcType = 'B';  // Body
+            else if (typeCode == 3) dtcType = 'U';  // Network
+            
+            // Erstelle DTC-String: z.B. "P0133"
+            char dtcStr[6];
+            sprintf(dtcStr, "%c%01X%02X", dtcType, firstByte & 0x3F, secondByte);
+            dtcCodes[i] = String(dtcStr);
+            
+            DEBUG_PORT.print("DTC ");
+            DEBUG_PORT.print(i);
+            DEBUG_PORT.print(": ");
+            DEBUG_PORT.println(dtcCodes[i]);
+            
+            dtcPos += 5;  // Nächster DTC (4 Zeichen + Leerzeichen)
+          }
+        }
+      }
+    }
+  } else if (response.indexOf("NO DATA") >= 0 || response.indexOf("43 00") >= 0) {
+    DEBUG_PORT.println("No DTCs found - all clear!");
+    dtcCount = 0;
+  } else {
+    DEBUG_PORT.println("Failed to read DTCs or invalid response");
+    dtcCount = 0;
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// DTC-Bildschirm anzeigen nach Motor-Aus
+//////////////////////////////////////////////////////////////////////////
+
+void displayDTCScreen() {
+  // Explizit alle Sprites löschen um Artefakte zu vermeiden
+  volt.deleteSprite();
+  intaketxt.deleteSprite();
+  tripavgtxt.deleteSprite();
+  boosttxt.deleteSprite();
+  coolanttxt.deleteSprite();
+  ui.deleteSprite();
+  
+  // Sicherstellen dass keine Fonts geladen sind
+  tft.unloadFont();
+  
+  // Reset auf Standard-Text-Einstellungen
+  tft.setTextSize(1);
+  tft.setTextFont(1);
+  
+  // Bildschirm komplett schwarz
+  tft.fillScreen(TFT_BLACK);
+  
+  if (dtcCount == 0) {
+    // Keine Fehler - grüner Screen
+    tft.loadFont(AA_FONT_MEDIUM, LittleFS);
+    tft.setTextDatum(MC_DATUM);  // NACH loadFont setzen!
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.drawString("ALLES OK!", displayConfig.width / 2, displayConfig.height / 2 - 20);
+    tft.unloadFont();
+    
+    tft.loadFont(AA_FONT_SMALL, LittleFS);
+    tft.setTextDatum(MC_DATUM);  // NACH loadFont setzen!
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawString("Keine Fehler", displayConfig.width / 2, displayConfig.height / 2 + 20);
+    tft.unloadFont();
+  } else {
+    // Fehler vorhanden - rote Warnung
+    
+    // Überschrift
+    tft.loadFont(AA_FONT_MEDIUM, LittleFS);
+    tft.setTextDatum(TC_DATUM);  // NACH loadFont setzen!
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.drawString("FEHLER!", displayConfig.width / 2, 10);
+    tft.unloadFont();
+    
+    // Fehleranzahl
+    tft.loadFont(AA_FONT_SMALL, LittleFS);
+    tft.setTextDatum(TC_DATUM);  // NACH loadFont setzen!
+    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    String countStr = String(dtcCount) + " Fehler gefunden:";
+    tft.drawString(countStr, displayConfig.width / 2, 45);
+    tft.unloadFont();
+    
+    // Fehler-Liste - 2-spaltig: 3 links, Trennlinie, 3 rechts
+    tft.loadFont(AA_FONT_SMALL, LittleFS);
+    tft.setTextDatum(TL_DATUM);  // NACH loadFont setzen!
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    
+    int startY = 75;
+    int lineHeight = 18;
+    int leftColumnX = 10;
+    int rightColumnX = displayConfig.width / 2 + 10;
+    int dividerX = displayConfig.width / 2;
+    
+    // Zeichne bis zu 6 Fehler (3 links, 3 rechts)
+    for (int i = 0; i < min(dtcCount, 6); i++) {
+      String dtcLine = dtcCodes[i];
+      
+      if (i < 3) {
+        // Linke Spalte (Fehler 0-2)
+        tft.drawString(dtcLine, leftColumnX, startY + (i * lineHeight));
+      } else {
+        // Rechte Spalte (Fehler 3-5)
+        tft.drawString(dtcLine, rightColumnX, startY + ((i - 3) * lineHeight));
+      }
+    }
+    
+    // Vertikale Trennlinie zwischen den Spalten (wenn mehr als 3 Fehler)
+    if (dtcCount > 3) {
+      tft.drawLine(dividerX, startY - 5, dividerX, startY + (3 * lineHeight) - 5, TFT_DARKGREY);
+    }
+    
+    tft.unloadFont();
+  }
+  
+  dtcScreenActive = true;
+  dtcScreenStartTime = millis();
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Motor-Status überwachen und bei Motor-Aus DTCs prüfen
+//////////////////////////////////////////////////////////////////////////
+
+void checkEngineStatus() {
+  // Aktuellen Motor-Status ermitteln
+  engineRunning = isEngineRunning();
+  
+  // Erkennung Motor-Aus Event
+  if (previousEngineRunning && !engineRunning) {
+    // Motor wurde gerade ausgeschaltet!
+    engineOffTime = millis();
+    DEBUG_PORT.println("\n========================================");
+    DEBUG_PORT.println("ENGINE TURNED OFF - Starting DTC check...");
+    DEBUG_PORT.println("========================================\n");
+    
+    // Kurz warten zur Sicherheit (Motor wirklich aus?)
+    delay(ENGINE_OFF_DELAY);
+    
+    // Nochmal prüfen ob Motor wirklich aus ist
+    if (!isEngineRunning()) {
+      // DTCs auslesen
+      readDTCs();
+      
+      // DTC-Screen anzeigen
+      displayDTCScreen();
+    } else {
+      DEBUG_PORT.println("False alarm - engine still running");
+    }
+  }
+  
+  previousEngineRunning = engineRunning;
+}
+
+//////////////////////////////////////////////////////////////////////////
+// UI nach DTC-Screen wiederherstellen
+//////////////////////////////////////////////////////////////////////////
+
+void restoreNormalUI() {
+  DEBUG_PORT.println("Restoring normal UI...");
+  
+  // Explizit alle Fonts entladen und Screen löschen
+  tft.unloadFont();
+  tft.setTextSize(1);
+  tft.setTextFont(1);
+  
+  // Reset alle previous Werte um komplettes Redraw zu erzwingen
+  prev_coolant = -999;
+  prev_voltage = -999;
+  prev_load = -999;
+  prev_intakeTemp = -999;
+  prev_avgFuelEconomy = -999;
+  last_angle_boost = 30;
+  last_angle_coolant = 30;
+  
+  // Bildschirm komplett schwarz neu aufbauen
+  tft.fillScreen(TFT_BLACK);
+  
+  // Sprites neu erstellen ZUERST (wurden in displayDTCScreen() gelöscht)
+  volt.setColorDepth(8);
+  volt.createSprite(displayConfig.voltageText.width, displayConfig.voltageText.height);
+  volt.fillSprite(TFT_BLACK);
+  volt.setTextColor(TFT_WHITE, TFT_BLACK);
+  
+  intaketxt.setColorDepth(8);
+  intaketxt.createSprite(displayConfig.intakeText.width, displayConfig.intakeText.height);
+  intaketxt.fillSprite(TFT_BLACK);
+  intaketxt.setTextColor(TFT_WHITE, TFT_BLACK);
+  
+  tripavgtxt.setColorDepth(8);
+  tripavgtxt.createSprite(displayConfig.tripAvgText.width, displayConfig.tripAvgText.height);
+  tripavgtxt.fillSprite(TFT_BLACK);
+  tripavgtxt.setTextColor(TFT_CYAN, TFT_BLACK);
+  
+  boosttxt.setColorDepth(8);
+  boosttxt.createSprite(displayConfig.boostText.width, displayConfig.boostText.height);
+  boosttxt.fillSprite(GAUGE_GREY);
+  boosttxt.setTextColor(TFT_WHITE, GAUGE_GREY);
+  
+  coolanttxt.setColorDepth(8);
+  coolanttxt.createSprite(displayConfig.coolantText.width, displayConfig.coolantText.height);
+  coolanttxt.fillSprite(GAUGE_GREY);
+  coolanttxt.setTextColor(TFT_WHITE, GAUGE_GREY);
+  
+  ui.setColorDepth(8);
+  ui.createSprite(displayConfig.width, displayConfig.height);
+  ui.fillSprite(TFT_BLACK);
+  ui.setSwapBytes(true);
+  ui.setTextColor(TFT_WHITE, TFT_BLACK);
+  
+  // UI Grundstruktur zeichnen
+  ui.fillSprite(TFT_BLACK);
+  ui.loadFont(getScaledFont(), LittleFS);
+  ui.drawString("Motorlast", 5, displayConfig.labels.lastY-10);
+  ui.drawString("Temp.", displayConfig.labels.coolantX-5, displayConfig.labels.coolantY-10);
+  ui.unloadFont();
+  ui.pushSprite(0, 0, TFT_BLACK);
+  
+  // Trennlinien
+  int lineY = displayConfig.labels.voltageY - 8;
+  tft.drawLine(0, lineY, displayConfig.width, lineY, TFT_DARKGREY);
+  
+  tft.setTextFont(1);
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextDatum(TL_DATUM);
+  tft.drawString("Batt", displayConfig.labels.voltageX, displayConfig.labels.voltageY - 3);
+  tft.drawString("Ansaug.T", displayConfig.labels.intakeX - 35, displayConfig.labels.intakeY - 3);
+  tft.drawString("L/100", displayConfig.labels.intakeX + 27, displayConfig.labels.intakeY - 3);
+  
+  int divider1X = displayConfig.voltageText.x + displayConfig.voltageText.width;
+  int divider2X = displayConfig.intakeText.x + displayConfig.intakeText.width + 5;
+  int dividerTopY = lineY;
+  int dividerBottomY = displayConfig.height;
+  tft.drawLine(divider1X, dividerTopY, divider1X, dividerBottomY, TFT_DARKGREY);
+  tft.drawLine(divider2X, dividerTopY, divider2X, dividerBottomY, TFT_DARKGREY);
+  
+  // Boost Meter
+  tft.fillCircle(displayConfig.boostMeter.x, displayConfig.boostMeter.y, displayConfig.boostMeter.radius, GAUGE_GREY);
+  tft.drawSmoothCircle(displayConfig.boostMeter.x, displayConfig.boostMeter.y, displayConfig.boostMeter.radius, TFT_SILVER, GAUGE_GREY);
+  int boostThickness = displayConfig.boostMeter.radius / 5;
+  tft.drawArc(displayConfig.boostMeter.x, displayConfig.boostMeter.y, 
+              displayConfig.boostMeter.radius - 3, displayConfig.boostMeter.radius - 3 - boostThickness, 
+              30, 330, TFT_BLACK, GAUGE_GREY);
+  
+  // Coolant Meter
+  tft.fillCircle(displayConfig.coolantMeter.x, displayConfig.coolantMeter.y, displayConfig.coolantMeter.radius, GAUGE_GREY);
+  tft.drawSmoothCircle(displayConfig.coolantMeter.x, displayConfig.coolantMeter.y, displayConfig.coolantMeter.radius, TFT_SILVER, GAUGE_GREY);
+  int coolantThickness = displayConfig.coolantMeter.radius / 5;
+  tft.drawArc(displayConfig.coolantMeter.x, displayConfig.coolantMeter.y, 
+              displayConfig.coolantMeter.radius - 3, displayConfig.coolantMeter.radius - 3 - coolantThickness, 
+              30, 330, TFT_BLACK, GAUGE_GREY);
+  
+  // Unit Labels
+  float scale = min((float)displayConfig.width / baseConfig.width, (float)displayConfig.height / baseConfig.height);
+  tft.loadFont(getScaledUnitFont(), LittleFS);
+  int percentX = displayConfig.boostMeter.x - (int)(9 * scale);
+  int percentY = displayConfig.boostMeter.y + displayConfig.boostMeter.radius - (int)(25 * scale);
+  tft.setTextColor(TFT_WHITE, GAUGE_GREY);
+  tft.setTextDatum(TL_DATUM);
+  tft.drawString("%", percentX - 3, percentY - 5);
+  int dotX = displayConfig.coolantMeter.x - (int)(10 * scale);
+  tft.drawString("°C", dotX + (int)(6 * scale) - 6, percentY - 5);
+  tft.unloadFont();
+  
+  // Initial Gauge-Werte zeichnen (sonst bleiben sie leer)
+  drawBoost(0);
+  drawCoolant(0);
+  
+  dtcScreenActive = false;
+}
 
 // Temperatur-Farbverlauf Funktion
 uint16_t getTemperatureColor(float temp) {
@@ -870,12 +1249,83 @@ digitalWrite(12, LOW);
 
 void loop()
 {
+  // DTC-Screen Handling (falls aktiv)
+  if (dtcScreenActive) {
+    // Wenn Fehler vorhanden sind: Nur bei Motor-Start zurückwechseln!
+    if (dtcCount > 0) {
+      // Prüfe ob Motor wieder gestartet wurde
+      if (elm327_ready && isEngineRunning()) {
+        DEBUG_PORT.println("Engine started - returning to normal UI");
+        restoreNormalUI();
+      }
+      // Im Demo-Modus: Nach 15 Sekunden zurück
+      else if (!elm327_ready && millis() - dtcScreenStartTime >= DTC_SCREEN_DURATION) {
+        restoreNormalUI();
+      }
+    }
+    // Wenn keine Fehler: Nach 15 Sekunden zurück (wie bisher)
+    else {
+      if (millis() - dtcScreenStartTime >= DTC_SCREEN_DURATION) {
+        restoreNormalUI();
+      }
+    }
+    return;  // Normale Loop überspringen während DTC-Screen aktiv
+  }
+  
+  // Motor-Status permanent überwachen (nur wenn ELM327 bereit)
+  if (elm327_ready) {
+    checkEngineStatus();
+  }
+  
   // Demo-Modus falls ELM327 nicht verfügbar (optimiert für flüssige Updates)
   if (!elm327_ready) {
     static unsigned long lastUpdate = 0;
+    static unsigned long demoStartTime = millis();  // Start des Demo-Zyklus
+    static bool demoMotorRunning = true;
     static float demoLoad = 50, demoCoolant = 80, demoVolt = 12.6, demoIntake = 25;  // Startiere mit realistischen Werten
     static float demoFuelEco = 7.5;  // Demo Fuel Economy L/100km
     static float demoAvgFuelEco = 7.5;
+    
+    // Demo-Modus: Simuliere Motor-Aus nach 30 Sekunden
+    unsigned long demoRuntime = millis() - demoStartTime;
+    
+    if (demoMotorRunning && demoRuntime >= 30000) {
+      // Nach 30 Sekunden: Motor-Aus-Simulation
+      DEBUG_PORT.println("\n========================================");
+      DEBUG_PORT.println("DEMO MODE: Simulating engine shutdown...");
+      DEBUG_PORT.println("========================================\n");
+      
+      demoMotorRunning = false;
+      demoVolt = 12.3;  // Spannung fällt (Lichtmaschine aus)
+      demoLoad = 0;     // Motorlast 0%
+      
+      // Simuliere DTC-Fehler (Beispiele) - 5 Fehler für Demo
+      dtcCount = 5;
+      dtcCodes[0] = "P0420";  // Katalysator-Effizienz unter Schwellwert
+      dtcCodes[1] = "P0171";  // System zu mager (Bank 1)
+      dtcCodes[2] = "P0301";  // Zündaussetzer Zylinder 1
+      dtcCodes[3] = "P0133";  // O2 Sensor träge Reaktion (Bank 1 Sensor 1)
+      dtcCodes[4] = "P0128";  // Kühlmitteltemperatur unter Thermostat-Öffnungstemperatur
+      
+      DEBUG_PORT.println("Demo DTCs generated:");
+      for (int i = 0; i < dtcCount; i++) {
+        DEBUG_PORT.print("  ");
+        DEBUG_PORT.println(dtcCodes[i]);
+      }
+      
+      // Zeige DTC-Screen
+      displayDTCScreen();
+    }
+    
+    // Wenn Motor "aus" ist und DTC-Screen nicht mehr aktiv: Neustart des Demo-Zyklus
+    if (!demoMotorRunning && !dtcScreenActive) {
+      DEBUG_PORT.println("\nDEMO MODE: Restarting demo cycle...\n");
+      demoStartTime = millis();  // Reset Timer
+      demoMotorRunning = true;
+      demoVolt = 13.5;  // Lichtmaschine wieder aktiv
+      demoLoad = 50;    // Motorlast zurück
+      dtcCount = 0;     // Fehler löschen für neuen Zyklus
+    }
     
     if (millis() - lastUpdate > 1000) {  // Häufigere Updates für flüssigere Demo
       // Simuliere sanftere, realistischere Wertänderungen (kleinere Sprünge)
@@ -975,6 +1425,7 @@ void loop()
 
     if (myELM327.nb_rx_state == ELM_SUCCESS)
     {
+      voltage = battery;  // Globale Variable für Motor-Erkennung aktualisieren
       Serial.print("Battery: ");
       Serial.print(battery);
       Serial.println(" V");
