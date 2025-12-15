@@ -301,6 +301,97 @@ void drawBoost(float load);
 void drawCoolant(float reading);
 
 //////////////////////////////////////////////////////////////////////////
+// DTC-Analyse-Funktionen
+//////////////////////////////////////////////////////////////////////////
+
+// Bestimme Kritikalität und Farbe eines DTC-Codes
+uint16_t getDTCColor(String dtcCode) {
+  char type = dtcCode.charAt(0);
+  
+  // Extrahiere Subsystem (zweite Ziffer bei P-Codes)
+  if (dtcCode.length() >= 4) {
+    char subsystem = dtcCode.charAt(2);
+    
+    // 🔴 KRITISCH (Rot)
+    // Zündaussetzer (P030x, P031x)
+    if (type == 'P' && subsystem == '3') {
+      return TFT_RED;
+    }
+    // Chassis-Codes (Bremsen, ABS, ESP)
+    if (type == 'C') {
+      return TFT_RED;
+    }
+    
+    // 🟠 WARNUNG (Orange/Gelb)
+    // Katalysator (P042x, P043x)
+    if (type == 'P' && subsystem == '4') {
+      return TFT_ORANGE;
+    }
+    // Gemisch (P01xx)
+    if (type == 'P' && subsystem == '1') {
+      return TFT_ORANGE;
+    }
+    
+    // 🟡 INFO (Cyan/Hellblau)
+    // Body-Codes (Komfort)
+    if (type == 'B') {
+      return TFT_CYAN;
+    }
+  }
+  
+  // Default: Weiß
+  return TFT_WHITE;
+}
+
+// Kurzbeschreibung basierend auf DTC-Code
+String getDTCDescription(String dtcCode) {
+  if (dtcCode.length() < 5) return "Unbekannt";
+  
+  char type = dtcCode.charAt(0);
+  String code = dtcCode.substring(1);  // z.B. "0420"
+  
+  // Häufige Codes mit deutschen Beschreibungen
+  if (dtcCode == "P0420") return "Katalysator";
+  if (dtcCode == "P0430") return "Katalysator Bank2";
+  if (dtcCode == "P0171") return "Gemisch mager";
+  if (dtcCode == "P0172") return "Gemisch fett";
+  if (dtcCode == "P0174") return "Gemisch mager B2";
+  if (dtcCode == "P0175") return "Gemisch fett B2";
+  if (dtcCode == "P0128") return "Kühlmitteltemp.";
+  if (dtcCode == "P0133") return "O2 Sensor träge";
+  if (dtcCode == "P0300") return "Zündaussetzer";
+  if (dtcCode == "P0301") return "Zündauss. Zyl.1";
+  if (dtcCode == "P0302") return "Zündauss. Zyl.2";
+  if (dtcCode == "P0303") return "Zündauss. Zyl.3";
+  if (dtcCode == "P0304") return "Zündauss. Zyl.4";
+  if (dtcCode == "P0305") return "Zündauss. Zyl.5";
+  if (dtcCode == "P0306") return "Zündauss. Zyl.6";
+  if (dtcCode == "P0440") return "Tankentlüftung";
+  if (dtcCode == "P0441") return "EVAP Durchfluss";
+  if (dtcCode == "P0442") return "EVAP Leck klein";
+  if (dtcCode == "P0455") return "EVAP Leck groß";
+  if (dtcCode == "P0456") return "EVAP Leck mini";
+  
+  // Fallback: Bestimme nach System-Typ
+  if (type == 'P') {
+    char subsystem = dtcCode.charAt(2);
+    if (subsystem == '1') return "Kraftstoff/Luft";
+    if (subsystem == '2') return "Injektor";
+    if (subsystem == '3') return "Zündung";
+    if (subsystem == '4') return "Abgas";
+    if (subsystem == '5') return "Drehzahl";
+    if (subsystem == '6') return "Steuergerät";
+    if (subsystem == '7' || subsystem == '8') return "Getriebe";
+    return "Motor";
+  }
+  if (type == 'C') return "Fahrwerk";
+  if (type == 'B') return "Karosserie";
+  if (type == 'U') return "Netzwerk";
+  
+  return "Unbekannt";
+}
+
+//////////////////////////////////////////////////////////////////////////
 // Motor-Status-Erkennung (Option B: Spannungsbasiert)
 //////////////////////////////////////////////////////////////////////////
 
@@ -419,14 +510,6 @@ void readDTCs() {
 //////////////////////////////////////////////////////////////////////////
 
 void displayDTCScreen() {
-  // Explizit alle Sprites löschen um Artefakte zu vermeiden
-  volt.deleteSprite();
-  intaketxt.deleteSprite();
-  tripavgtxt.deleteSprite();
-  boosttxt.deleteSprite();
-  coolanttxt.deleteSprite();
-  ui.deleteSprite();
-  
   // Sicherstellen dass keine Fonts geladen sind
   tft.unloadFont();
   
@@ -434,8 +517,16 @@ void displayDTCScreen() {
   tft.setTextSize(1);
   tft.setTextFont(1);
   
-  // Bildschirm komplett schwarz
+  // Bildschirm ZUERST komplett schwarz - BEVOR Sprites gelöscht werden
   tft.fillScreen(TFT_BLACK);
+  
+  // Explizit alle Sprites löschen (nach fillScreen, damit nichts mehr drüber gepusht wird)
+  volt.deleteSprite();
+  intaketxt.deleteSprite();
+  tripavgtxt.deleteSprite();
+  boosttxt.deleteSprite();
+  coolanttxt.deleteSprite();
+  ui.deleteSprite();
   
   if (dtcCount == 0) {
     // Keine Fehler - grüner Screen
@@ -451,53 +542,45 @@ void displayDTCScreen() {
     tft.drawString("Keine Fehler", displayConfig.width / 2, displayConfig.height / 2 + 20);
     tft.unloadFont();
   } else {
-    // Fehler vorhanden - rote Warnung
+    // Fehler vorhanden - Kompakte Darstellung
     
-    // Überschrift
-    tft.loadFont(AA_FONT_MEDIUM, LittleFS);
+    // Überschrift: "DTC-Fehler (5)" - klein und oben am Rand
+    tft.loadFont(AA_FONT_SMALL, LittleFS);
     tft.setTextDatum(TC_DATUM);  // NACH loadFont setzen!
     tft.setTextColor(TFT_RED, TFT_BLACK);
-    tft.drawString("FEHLER!", displayConfig.width / 2, 10);
+    String headerStr = "DTC-Fehler (" + String(dtcCount) + ")";
+    tft.drawString(headerStr, displayConfig.width / 2, 5);
     tft.unloadFont();
     
-    // Fehleranzahl
-    tft.loadFont(AA_FONT_SMALL, LittleFS);
-    tft.setTextDatum(TC_DATUM);  // NACH loadFont setzen!
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    String countStr = String(dtcCount) + " Fehler gefunden:";
-    tft.drawString(countStr, displayConfig.width / 2, 45);
-    tft.unloadFont();
+    // Fehler-Liste direkt darunter beginnen - Built-in Font (viel kleiner)
+    tft.setTextFont(1);  // Built-in 6x8 Font
+    tft.setTextSize(1);  // Standard-Größe
+    tft.setTextDatum(TL_DATUM);
     
-    // Fehler-Liste - 2-spaltig: 3 links, Trennlinie, 3 rechts
-    tft.loadFont(AA_FONT_SMALL, LittleFS);
-    tft.setTextDatum(TL_DATUM);  // NACH loadFont setzen!
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    int startY = 30;  // Direkt unter Überschrift
+    int lineHeight = 11;  // Kompakter für kleine Font
+    int leftMargin = 5;
     
-    int startY = 75;
-    int lineHeight = 18;
-    int leftColumnX = 10;
-    int rightColumnX = displayConfig.width / 2 + 10;
-    int dividerX = displayConfig.width / 2;
-    
-    // Zeichne bis zu 6 Fehler (3 links, 3 rechts)
-    for (int i = 0; i < min(dtcCount, 6); i++) {
-      String dtcLine = dtcCodes[i];
+    // Zeichne alle Fehler untereinander (max 10)
+    for (int i = 0; i < min(dtcCount, 10); i++) {
+      String dtcCode = dtcCodes[i];
+      String description = getDTCDescription(dtcCode);
+      uint16_t codeColor = getDTCColor(dtcCode);
       
-      if (i < 3) {
-        // Linke Spalte (Fehler 0-2)
-        tft.drawString(dtcLine, leftColumnX, startY + (i * lineHeight));
-      } else {
-        // Rechte Spalte (Fehler 3-5)
-        tft.drawString(dtcLine, rightColumnX, startY + ((i - 3) * lineHeight));
-      }
+      int yPos = startY + (i * lineHeight);
+      
+      // DTC-Code in Farbe (je nach Kritikalität)
+      tft.setTextColor(codeColor, TFT_BLACK);
+      tft.drawString(dtcCode, leftMargin, yPos);
+      
+      // Beschreibung in Weiß und Klammern - direkt danach mit Leerzeichen
+      tft.setTextColor(TFT_WHITE, TFT_BLACK);
+      String descText = " (" + description + ")";
+      // Position: Code-Breite (ca. 36 Pixel für 6 Zeichen) + kleiner Abstand
+      tft.drawString(descText, leftMargin + 36, yPos);
     }
     
-    // Vertikale Trennlinie zwischen den Spalten (wenn mehr als 3 Fehler)
-    if (dtcCount > 3) {
-      tft.drawLine(dividerX, startY - 5, dividerX, startY + (3 * lineHeight) - 5, TFT_DARKGREY);
-    }
-    
-    tft.unloadFont();
+    // Font wird nicht entladen, da wir Built-in Font verwenden
   }
   
   dtcScreenActive = true;
