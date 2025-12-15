@@ -2,7 +2,7 @@
 
 Ein ESP32-basiertes OBD-II Display für Opel-Fahrzeuge mit TFT-Anzeige. Zeigt Live-Motorparameter über Bluetooth-Verbindung zum ELM327 OBD-II Adapter.
 
-## � Benötigtes Material
+## Benötigtes Material
 
 *Hinweis: Die folgenden Links sind Affiliate Links.*
 
