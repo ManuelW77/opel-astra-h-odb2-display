@@ -11,7 +11,7 @@ Ein ESP32-basiertes OBD-II Display für Opel-Fahrzeuge mit TFT-Anzeige. Zeigt Li
 - **12V Netzteil:** https://amzn.to/45c1ApQ
 - **OBD2 Adapter:** https://amzn.to/4pDKYj0
 
-## �📋 Übersicht
+## Übersicht
 
 Dieses Projekt verwandelt einen ESP32-Mikrocontroller mit TFT-Display in ein professionelles Fahrzeug-Infodisplay. Es liest OBD-II-Daten über Bluetooth aus und stellt sie übersichtlich auf einem farbigen TFT-Display dar.
 
