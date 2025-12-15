@@ -319,10 +319,10 @@ void drawVolt(float reading)
   uint16_t textColor;
   if (reading < 12.4) {
     textColor = TFT_RED;     // unter 12,4V: rot
-  } else if (reading >= 12.4 && reading <= 13.8) {
-    textColor = TFT_CYAN;    // 12,4 - 13,8V: hellblau
+  } else if (reading >= 12.4 && reading < 13.3) {
+    textColor = TFT_CYAN;    // 12,4 - 13,3V: hellblau
   } else {
-    textColor = TFT_GREEN;   // über 13,8V: grün
+    textColor = TFT_GREEN;   // ab 13,3V: grün
   }
   
   // Double-Buffer: Zeichne auf Sprite statt direkt auf Display (kein Flackern!)
