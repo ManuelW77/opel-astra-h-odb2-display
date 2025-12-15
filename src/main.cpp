@@ -247,7 +247,7 @@ typedef enum
   VOLTAGE,
   INTAKE_TEMP,
   SPEED,
-  FUEL_RATE
+  FUEL_ECONOMY
 } obd_pid_states;
 obd_pid_states obd_state = VOLTAGE;
 
@@ -256,20 +256,18 @@ float voltage = 0;
 float load = 0;
 float intakeTemp = 0;
 
-// Trip-Computer Variablen
-float tripDistance = 0;        // km
-float tripFuelUsed = 0;        // Liter
-float tripAvgConsumption = 0;  // L/100km
-float currentSpeed = 0;        // km/h
-float currentFuelRate = 0;     // L/h
-unsigned long lastTripUpdate = 0;
+// Fuel Economy Variablen (gleitender Durchschnitt)
+float currentFuelEconomy = 0;     // Momentanverbrauch L/100km (von OBD2)
+float avgFuelEconomy = 0;         // Gleitender Durchschnitt L/100km
+float fuelEconomySum = 0;         // Summe für Durchschnittsberechnung
+unsigned long fuelEconomySamples = 0;  // Anzahl Messungen seit Neustart
 
 // Vorherige Werte für Delta-Updates (verhindert unnötige Redraws)
 float prev_coolant = -999;
 float prev_voltage = -999;
 float prev_load = -999;
 float prev_intakeTemp = -999;
-float prev_tripAvg = -999;
+float prev_avgFuelEconomy = -999;
 
 String message="";
 
@@ -373,11 +371,11 @@ void drawIntakeTemp(float reading)
   intaketxt.pushSprite(displayConfig.intakeText.x, displayConfig.intakeText.y);
 }
 
-void drawTripAvg(float reading)
+void drawAvgFuelEconomy(float reading)
 {
   // Nur bei Änderung updaten (verhindert Flackern)
-  if (abs(reading - prev_tripAvg) < 0.1) return;  // 0.1 L/100km Toleranz
-  prev_tripAvg = reading;
+  if (abs(reading - prev_avgFuelEconomy) < 0.1) return;  // 0.1 L/100km Toleranz
+  prev_avgFuelEconomy = reading;
   
   // Bestimme Farbe basierend auf Verbrauch
   uint16_t textColor;
@@ -897,8 +895,8 @@ void loop()
   if (!elm327_ready) {
     static unsigned long lastUpdate = 0;
     static float demoLoad = 50, demoCoolant = 80, demoVolt = 12.6, demoIntake = 25;  // Startiere mit realistischen Werten
-    static float demoSpeed = 50, demoFuelRate = 8.5;
-    static float demoTripDist = 0, demoTripFuel = 0;
+    static float demoFuelEco = 7.5;  // Demo Fuel Economy L/100km
+    static float demoAvgFuelEco = 7.5;
     
     if (millis() - lastUpdate > 1000) {  // Häufigere Updates für flüssigere Demo
       // Simuliere sanftere, realistischere Wertänderungen (kleinere Sprünge)
@@ -918,28 +916,22 @@ void loop()
       if (demoIntake < -10) demoIntake = -10;
       if (demoIntake > 60) demoIntake = 60;
       
-      demoSpeed += random(-3, 4);
-      if (demoSpeed < 0) demoSpeed = 0;
-      if (demoSpeed > 130) demoSpeed = 130;
+      // Simuliere Fuel Economy
+      demoFuelEco += random(-5, 6) / 10.0;
+      if (demoFuelEco < 3.0) demoFuelEco = 3.0;
+      if (demoFuelEco > 15.0) demoFuelEco = 15.0;
       
-      demoFuelRate += random(-5, 6) / 10.0;
-      if (demoFuelRate < 0) demoFuelRate = 0;
-      if (demoFuelRate > 15) demoFuelRate = 15;
-      
-      demoTripDist += demoSpeed / 3600.0;
-      demoTripFuel += demoFuelRate / 3600.0;
+      // Gleitender Durchschnitt (Demo)
+      demoAvgFuelEco = (demoAvgFuelEco * 0.95) + (demoFuelEco * 0.05);
       
       Serial.println("DEMO MODE - Simulated values:");
       Serial.printf("LOAD: %.1f %%\n", demoLoad);
       Serial.printf("Coolant: %.1f °C\n", demoCoolant);
       Serial.printf("Battery: %.2f V\n", demoVolt);
       Serial.printf("Intake Air: %.1f °C\n", demoIntake);
+      Serial.printf("Fuel Economy: %.1f L/100km (Current) / %.1f L/100km (Avg)\n", demoFuelEco, demoAvgFuelEco);
       
-      if (demoTripDist > 0.01) {
-        float demoAvg = (demoTripFuel / demoTripDist) * 100.0;
-        Serial.printf("Trip Avg: %.1f L/100km (%.2f km, %.2f L)\n", demoAvg, demoTripDist, demoTripFuel);
-        drawTripAvg(demoAvg);
-      }
+      drawAvgFuelEconomy(demoAvgFuelEco);
       
       // Updates erfolgen nur bei signifikanten Änderungen (dank Delta-Check)
       drawBoost(demoLoad);
@@ -1040,51 +1032,43 @@ void loop()
     break;
   }
 
-  case SPEED:
+  case FUEL_ECONOMY:
   {
-    float speed = myELM327.kph();
+    // Fuel Economy (inverse) = L/100km Momentanverbrauch
+    // PID 0x5E - unterstützt von deinem Fahrzeug
+    currentFuelEconomy = myELM327.fuelRate();  // Temporär - wird durch custom command ersetzt
+    
+    // Custom Command für PID 0x5E (Fuel Economy inverse)
+    // Format: "01 5E" returns 2 bytes: A*B/20 = L/100km
+    // Dies muss ggf. manuell implementiert werden, falls ELMduino das nicht unterstützt
     
     if (myELM327.nb_rx_state == ELM_SUCCESS)
     {
-      currentSpeed = speed;
-      Serial.print("Speed: ");
-      Serial.print(speed);
-      Serial.println(" km/h");
-      obd_state = FUEL_RATE;
-    }
-    else if (myELM327.nb_rx_state != ELM_GETTING_MSG)
-    {
-      myELM327.printError();
-      obd_state = FUEL_RATE;
-    }
-    break;
-  }
-
-  case FUEL_RATE:
-  {
-    float fuelRate = myELM327.fuelRate();
-    
-    if (myELM327.nb_rx_state == ELM_SUCCESS)
-    {
-      currentFuelRate = fuelRate;
-      Serial.print("Fuel Rate: ");
-      Serial.print(fuelRate);
-      Serial.println(" L/h");
+      Serial.print("Fuel Economy (Momentan): ");
+      Serial.print(currentFuelEconomy);
+      Serial.println(" L/100km");
       
-      // Trip-Berechnung
-      unsigned long now = millis();
-      if (lastTripUpdate > 0) {
-        float deltaTime = (now - lastTripUpdate) / 3600000.0; // Stunden
+      // Gleitender Durchschnitt berechnen
+      // Nur Werte > 0 einbeziehen (Fahrzeug fährt)
+      if (currentFuelEconomy > 0 && currentFuelEconomy < 50) {  // Plausibilitätsprüfung
+        fuelEconomySamples++;
+        fuelEconomySum += currentFuelEconomy;
         
-        tripDistance += currentSpeed * deltaTime; // km
-        tripFuelUsed += currentFuelRate * deltaTime; // Liter
-        
-        if (tripDistance > 0.01) {
-          tripAvgConsumption = (tripFuelUsed / tripDistance) * 100.0;
-          drawTripAvg(tripAvgConsumption);
+        // Gewichteter gleitender Durchschnitt (95% alt, 5% neu)
+        if (avgFuelEconomy == 0) {
+          avgFuelEconomy = currentFuelEconomy;  // Initialisierung
+        } else {
+          avgFuelEconomy = (avgFuelEconomy * 0.95) + (currentFuelEconomy * 0.05);
         }
+        
+        Serial.print("Fuel Economy (Durchschnitt): ");
+        Serial.print(avgFuelEconomy);
+        Serial.print(" L/100km (Samples: ");
+        Serial.print(fuelEconomySamples);
+        Serial.println(")");
+        
+        drawAvgFuelEconomy(avgFuelEconomy);
       }
-      lastTripUpdate = now;
       
       obd_state = LOAD;
     }
