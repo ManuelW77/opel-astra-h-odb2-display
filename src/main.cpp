@@ -1545,6 +1545,28 @@ void loop()
     break;
   }
 
+  case SPEED:
+  {
+    // Speed wird nicht angezeigt, aber wir lesen ihn trotzdem aus
+    // um den OBD-Zyklus vollständig zu machen
+    float speed = myELM327.kph();
+
+    if (myELM327.nb_rx_state == ELM_SUCCESS)
+    {
+      Serial.print("Speed: ");
+      Serial.print(speed);
+      Serial.println(" km/h");
+      obd_state = FUEL_ECONOMY;
+    }
+    else if (myELM327.nb_rx_state != ELM_GETTING_MSG)
+    {
+      myELM327.printError();
+      obd_state = FUEL_ECONOMY;
+    }
+
+    break;
+  }
+
   case FUEL_ECONOMY:
   {
     // Fuel Economy (inverse) = L/100km Momentanverbrauch
