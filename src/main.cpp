@@ -403,38 +403,20 @@ void drawAvgFuelEconomy(float reading)
 
 // Motorlast-Farbverlauf Funktion
 uint16_t getLoadColor(float load) {
-  if (load <= 30) {
-    return TFT_CYAN;  // 0-30%: cyan/hellblau
+  if (load < 10) {
+    return TFT_CYAN;  // unter 10%: cyan/hellblau
   }
-  else if (load > 30 && load <= 60) {
-    // Übergang von Cyan zu Grün (30-60%)
-    float factor = (load - 30) / 30.0;  // 0.0 bis 1.0
-    // Interpolation zwischen Cyan (0x07FF) und Grün (0x07E0)
-    uint8_t r = 0;
-    uint8_t g = 63;  // Grün bleibt voll
-    uint8_t b = (uint8_t)((1.0 - factor) * 31);  // Blau von 31 auf 0
-    return (r << 11) | (g << 5) | b;
-  }
-  else if (load > 60 && load <= 80) {
-    // Übergang von Grün zu Orange (60-80%)
-    float factor = (load - 60) / 20.0;  // 0.0 bis 1.0
-    // Interpolation zwischen Grün (0x07E0) und Orange (0xFD20)
+  else if (load >= 10 && load <= 60) {
+    // Übergang von Grün zu Rot (10-60%)
+    float factor = (load - 10) / 50.0;  // 0.0 bis 1.0
+    // Interpolation zwischen Grün (0x07E0) und Rot (0xF800)
     uint8_t r = (uint8_t)(factor * 31);  // Rot von 0 auf 31
-    uint8_t g = 63;  // Grün bleibt voll
-    uint8_t b = 0;
-    return (r << 11) | (g << 5) | b;
-  }
-  else if (load > 80 && load <= 100) {
-    // Übergang von Orange zu Rot (80-100%)
-    float factor = (load - 80) / 20.0;  // 0.0 bis 1.0
-    // Interpolation zwischen Orange (0xFD20) und Rot (0xF800)
-    uint8_t r = 31;  // Rot bleibt voll
     uint8_t g = (uint8_t)((1.0 - factor) * 63);  // Grün von 63 auf 0
     uint8_t b = 0;
     return (r << 11) | (g << 5) | b;
   }
   else {
-    return TFT_RED;  // Über 100%
+    return TFT_RED;  // über 60%: vollständig rot
   }
 }
 
