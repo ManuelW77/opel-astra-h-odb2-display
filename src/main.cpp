@@ -255,6 +255,7 @@ float coolant = 0;
 float voltage = 0;
 float load = 0;
 float intakeTemp = 0;
+float vehicleSpeed = 0;
 
 // Fuel Economy Variablen (gleitender Durchschnitt)
 float currentFuelEconomy = 0;     // Momentanverbrauch L/100km (von OBD2)
@@ -1548,11 +1549,12 @@ void loop()
   case SPEED:
   {
     // Speed wird nicht angezeigt, aber wir lesen ihn trotzdem aus
-    // um den OBD-Zyklus vollständig zu machen
+    // um den OBD-Zyklus vollständig zu machen und für Verbrauchsberechnung
     float speed = myELM327.kph();
 
     if (myELM327.nb_rx_state == ELM_SUCCESS)
     {
+      vehicleSpeed = speed;  // Globale Variable für Verbrauchsberechnung
       Serial.print("Speed: ");
       Serial.print(speed);
       Serial.println(" km/h");
@@ -1569,40 +1571,48 @@ void loop()
 
   case FUEL_ECONOMY:
   {
-    // Fuel Economy (inverse) = L/100km Momentanverbrauch
-    // PID 0x5E - unterstützt von deinem Fahrzeug
-    currentFuelEconomy = myELM327.fuelRate();  // Temporär - wird durch custom command ersetzt
-    
-    // Custom Command für PID 0x5E (Fuel Economy inverse)
-    // Format: "01 5E" returns 2 bytes: A*B/20 = L/100km
-    // Dies muss ggf. manuell implementiert werden, falls ELMduino das nicht unterstützt
+    // Fuel Rate in L/h auslesen (PID 0x5F)
+    float fuelRateLperH = myELM327.fuelRate();
     
     if (myELM327.nb_rx_state == ELM_SUCCESS)
     {
-      Serial.print("Fuel Economy (Momentan): ");
-      Serial.print(currentFuelEconomy);
-      Serial.println(" L/100km");
+      Serial.print("Fuel Rate: ");
+      Serial.print(fuelRateLperH);
+      Serial.println(" L/h");
       
-      // Gleitender Durchschnitt berechnen
-      // Nur Werte > 0 einbeziehen (Fahrzeug fährt)
-      if (currentFuelEconomy > 0 && currentFuelEconomy < 50) {  // Plausibilitätsprüfung
-        fuelEconomySamples++;
-        fuelEconomySum += currentFuelEconomy;
+      // Berechne L/100km aus Fuel Rate (L/h) und Speed (km/h)
+      // Formel: L/100km = (Fuel Rate / Speed) * 100
+      if (vehicleSpeed > 5.0) {  // Nur bei Fahrt berechnen (> 5 km/h)
+        currentFuelEconomy = (fuelRateLperH / vehicleSpeed) * 100.0;
         
-        // Gewichteter gleitender Durchschnitt (95% alt, 5% neu)
-        if (avgFuelEconomy == 0) {
-          avgFuelEconomy = currentFuelEconomy;  // Initialisierung
-        } else {
-          avgFuelEconomy = (avgFuelEconomy * 0.95) + (currentFuelEconomy * 0.05);
+        Serial.print("Fuel Economy (berechnet): ");
+        Serial.print(currentFuelEconomy);
+        Serial.println(" L/100km");
+        
+        // Gleitender Durchschnitt berechnen
+        // Nur plausible Werte einbeziehen
+        if (currentFuelEconomy > 0 && currentFuelEconomy < 50) {  // Plausibilitätsprüfung
+          fuelEconomySamples++;
+          fuelEconomySum += currentFuelEconomy;
+          
+          // Gewichteter gleitender Durchschnitt (95% alt, 5% neu)
+          if (avgFuelEconomy == 0) {
+            avgFuelEconomy = currentFuelEconomy;  // Initialisierung
+          } else {
+            avgFuelEconomy = (avgFuelEconomy * 0.95) + (currentFuelEconomy * 0.05);
+          }
+          
+          Serial.print("Fuel Economy (Durchschnitt): ");
+          Serial.print(avgFuelEconomy);
+          Serial.print(" L/100km (Samples: ");
+          Serial.print(fuelEconomySamples);
+          Serial.println(")");
+          
+          drawAvgFuelEconomy(avgFuelEconomy);
         }
-        
-        Serial.print("Fuel Economy (Durchschnitt): ");
-        Serial.print(avgFuelEconomy);
-        Serial.print(" L/100km (Samples: ");
-        Serial.print(fuelEconomySamples);
-        Serial.println(")");
-        
-        drawAvgFuelEconomy(avgFuelEconomy);
+      } else {
+        // Bei Stillstand/langsamer Fahrt: Behalte letzten Wert
+        Serial.println("Speed too low for fuel economy calculation");
       }
       
       obd_state = LOAD;
