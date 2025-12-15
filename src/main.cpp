@@ -357,19 +357,19 @@ String getDTCDescription(String dtcCode) {
   if (dtcCode == "P0172") return "Gemisch fett";
   if (dtcCode == "P0174") return "Gemisch mager B2";
   if (dtcCode == "P0175") return "Gemisch fett B2";
-  if (dtcCode == "P0128") return "Kühlmitteltemp.";
-  if (dtcCode == "P0133") return "O2 Sensor träge";
-  if (dtcCode == "P0300") return "Zündaussetzer";
-  if (dtcCode == "P0301") return "Zündauss. Zyl.1";
-  if (dtcCode == "P0302") return "Zündauss. Zyl.2";
-  if (dtcCode == "P0303") return "Zündauss. Zyl.3";
-  if (dtcCode == "P0304") return "Zündauss. Zyl.4";
-  if (dtcCode == "P0305") return "Zündauss. Zyl.5";
-  if (dtcCode == "P0306") return "Zündauss. Zyl.6";
-  if (dtcCode == "P0440") return "Tankentlüftung";
+  if (dtcCode == "P0128") return "Kuehlmitteltemp.";
+  if (dtcCode == "P0133") return "O2 Sensor traege";
+  if (dtcCode == "P0300") return "Zuendaussetzer";
+  if (dtcCode == "P0301") return "Zuendauss. Zyl.1";
+  if (dtcCode == "P0302") return "Zuendauss. Zyl.2";
+  if (dtcCode == "P0303") return "Zuendauss. Zyl.3";
+  if (dtcCode == "P0304") return "Zuendauss. Zyl.4";
+  if (dtcCode == "P0305") return "Zuendauss. Zyl.5";
+  if (dtcCode == "P0306") return "Zuendauss. Zyl.6";
+  if (dtcCode == "P0440") return "Tankentlueftung";
   if (dtcCode == "P0441") return "EVAP Durchfluss";
   if (dtcCode == "P0442") return "EVAP Leck klein";
-  if (dtcCode == "P0455") return "EVAP Leck groß";
+  if (dtcCode == "P0455") return "EVAP Leck gross";
   if (dtcCode == "P0456") return "EVAP Leck mini";
   
   // Fallback: Bestimme nach System-Typ
@@ -377,10 +377,10 @@ String getDTCDescription(String dtcCode) {
     char subsystem = dtcCode.charAt(2);
     if (subsystem == '1') return "Kraftstoff/Luft";
     if (subsystem == '2') return "Injektor";
-    if (subsystem == '3') return "Zündung";
+    if (subsystem == '3') return "Zuendung";
     if (subsystem == '4') return "Abgas";
     if (subsystem == '5') return "Drehzahl";
-    if (subsystem == '6') return "Steuergerät";
+    if (subsystem == '6') return "Steuergeraet";
     if (subsystem == '7' || subsystem == '8') return "Getriebe";
     return "Motor";
   }
