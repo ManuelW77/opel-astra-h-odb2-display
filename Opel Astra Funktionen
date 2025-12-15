@@ -1,0 +1,44 @@
+Fehleranzeige (DTC-Status)
+Freeze DTC
+Fuel System Status
+Engine Load
+Engine Coolant Temperature
+Short term fuel % trim—Bank 1
+Long term fuel % trim—Bank 1
+Intake manifold absolute pressure (MAP)
+Engine RPM
+Speed
+Timing Advance
+Intake air temperature (IAT)
+MAF air flow rate
+Throttle Position
+Oxygen Sensors 1 present
+B1S1 - 02 V
+B1S1 - 02 %
+B1S2 - 02 V
+B1S2 - 02 %
+OBD Standard
+Run Time
+Zurückgelegte Strecke mit Störungsmelder
+Commanded EGR
+EGR Error
+Commanded Evaporative Purge
+Fuel Level Input
+Anzahl der Aufwärmvorgänge seit dem Zurücksetzen der Codes
+Zurückgelegte Strecke nach Löschen der Codes
+Barometric Pressure
+CT Bank 1, Sensor 1
+Control Module Voltage
+Ambient Air Temperature
+Throttle Position B
+Control Module Voltage
+Ambient Air Temperature
+Throttle Position B
+Throttle Position C
+Accelerator Position D
+Accelerator Position E
+Voltage level
+Fuel Economy
+Fuel Economy (inverse)
+Fuel Economy Average
+Fuel Economy Average (inverse)
