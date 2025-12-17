@@ -247,7 +247,8 @@ typedef enum
   VOLTAGE,
   INTAKE_TEMP,
   SPEED,
-  FUEL_ECONOMY
+  FUEL_ECONOMY,
+  RPM
 } obd_pid_states;
 obd_pid_states obd_state = VOLTAGE;
 
@@ -256,6 +257,7 @@ float voltage = 0;
 float load = 0;
 float intakeTemp = 0;
 float vehicleSpeed = 0;
+float engineRPM = 0;
 
 // Fuel Economy Variablen (gleitender Durchschnitt)
 float currentFuelEconomy = 0;     // Momentanverbrauch L/100km (von OBD2)
@@ -276,13 +278,12 @@ String message="";
 // Motor-Aus-Erkennung und DTC (Fehlerspeicher) Variablen
 //////////////////////////////////////////////////////////////////////////
 
-// Ignition Detection Variablen (Option B: Spannungsbasiert)
+// Ignition Detection Variablen (Drehzahlbasiert)
 bool engineRunning = false;
 bool previousEngineRunning = false;
 unsigned long engineOffTime = 0;
 const unsigned long ENGINE_OFF_DELAY = 3000;  // 3 Sekunden Verzögerung zur Sicherheit
-const float VOLTAGE_THRESHOLD_RUNNING = 13.0;  // >= 13.0V = Lichtmaschine läuft (Motor an)
-const float LOAD_THRESHOLD_RUNNING = 5.0;      // Last > 5% = Motor läuft definitiv
+const float RPM_THRESHOLD_RUNNING = 400.0;     // >= 400 RPM = Motor läuft
 
 // DTC (Diagnostic Trouble Code) Variablen
 String dtcCodes[10];  // Max 10 Fehler speichern
@@ -393,24 +394,17 @@ String getDTCDescription(String dtcCode) {
 }
 
 //////////////////////////////////////////////////////////////////////////
-// Motor-Status-Erkennung (Option B: Spannungsbasiert)
+// Motor-Status-Erkennung (Drehzahlbasiert)
 //////////////////////////////////////////////////////////////////////////
 
-// Prüfe ob Motor läuft basierend auf Bordspannung und Motorlast
+// Prüfe ob Motor läuft basierend auf Motordrehzahl
 bool isEngineRunning() {
-  // Methode 1: Spannungs-basiert (Hauptkriterium)
-  // Lichtmaschine läuft: >= 13.0V, Motor aus: < 13.0V
-  if (voltage >= VOLTAGE_THRESHOLD_RUNNING) {
+  // Drehzahl-basiert: >= 400 RPM = Motor läuft
+  if (engineRPM >= RPM_THRESHOLD_RUNNING) {
     return true;
   }
   
-  // Methode 2: Zusätzlicher Check - Hohe Motorlast = Motor läuft definitiv
-  // Selbst wenn Spannung kurzzeitig niedrig (z.B. Anlasser)
-  if (load > LOAD_THRESHOLD_RUNNING) {
-    return true;
-  }
-  
-  return false;  // Motor aus: Spannung < 13V UND Last niedrig
+  return false;  // Motor aus: Drehzahl < 400 RPM
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -1100,6 +1094,114 @@ void connectionErrorHandling(String message)
 }
 
 //////////////////////////////////////////////////////////////////////////
+// PID Debug Funktion - listet alle verfügbaren PIDs auf
+//////////////////////////////////////////////////////////////////////////
+
+void debugAvailablePIDs() {
+#if DEBUG_PIDS == 1
+  DEBUG_PORT.println("\n========================================");
+  DEBUG_PORT.println("VERFÜGBARE OBD-PIDs WERDEN GEPRÜFT...");
+  DEBUG_PORT.println("========================================\n");
+  
+  // Liste der gängigen PIDs mit Beschreibungen
+  struct PIDInfo {
+    uint8_t pid;
+    const char* name;
+  };
+  
+  const PIDInfo commonPIDs[] = {
+    {0x00, "PIDs 01-20 verfügbar"},
+    {0x01, "Status seit DTC gelöscht"},
+    {0x03, "Fuel System Status"},
+    {0x04, "Motorlast (LOAD)"},
+    {0x05, "Kühlmitteltemperatur"},
+    {0x06, "Kurzzeit Fuel Trim Bank 1"},
+    {0x07, "Langzeit Fuel Trim Bank 1"},
+    {0x0A, "Kraftstoffdruck"},
+    {0x0B, "Ansaugkrümmer Absolutdruck"},
+    {0x0C, "Motordrehzahl (RPM)"},
+    {0x0D, "Geschwindigkeit (KPH)"},
+    {0x0E, "Zündwinkel"},
+    {0x0F, "Ansauglufttemperatur (IAT)"},
+    {0x10, "Luftmassenstrom (MAF)"},
+    {0x11, "Drosselklappenposition"},
+    {0x1F, "Motor Laufzeit"},
+    {0x20, "PIDs 21-40 verfügbar"},
+    {0x21, "Distanz mit MIL an"},
+    {0x2F, "Tankfüllstand"},
+    {0x33, "Absolutdruck Ansaugkrümmer"},
+    {0x40, "PIDs 41-60 verfügbar"},
+    {0x42, "Batteriespannung"},
+    {0x43, "Absolute Motorlast"},
+    {0x44, "Fuel/Air Verhältnis"},
+    {0x45, "Relative Drosselklappenposition"},
+    {0x46, "Umgebungstemperatur"},
+    {0x49, "Fahrpedalposition"},
+    {0x4C, "Drosselklappenposition Kommandiert"},
+    {0x4D, "Motor Laufzeit mit MIL an"},
+    {0x51, "Kraftstofftyp"},
+    {0x5C, "Motoröltemperatur"},
+    {0x5E, "Kraftstoffverbrauch L/h"},
+    {0x60, "PIDs 61-80 verfügbar"},
+  };
+  
+  const int numPIDs = sizeof(commonPIDs) / sizeof(commonPIDs[0]);
+  
+  DEBUG_PORT.println("Prüfe verfügbare PIDs (dies kann einige Sekunden dauern)...\n");
+  
+  int foundCount = 0;
+  
+  for (int i = 0; i < numPIDs; i++) {
+    uint8_t pid = commonPIDs[i].pid;
+    
+    // Sende OBD-Anfrage für PID
+    String query = "01" + String(pid, HEX);
+    query.toUpperCase();
+    if (pid < 0x10) {
+      query = "010" + String(pid, HEX);
+      query.toUpperCase();
+    }
+    
+    ELM_PORT.print(query + "\r");
+    delay(100);  // Kurze Verzögerung für Antwort
+    
+    String response = "";
+    unsigned long timeout = millis() + 500;
+    
+    while (millis() < timeout) {
+      if (ELM_PORT.available()) {
+        char c = ELM_PORT.read();
+        response += c;
+        if (c == '>') break;
+      }
+    }
+    
+    // Prüfe ob valide Antwort (nicht "NO DATA" oder Error)
+    if (response.indexOf("41") >= 0 && 
+        response.indexOf("NO DATA") < 0 && 
+        response.indexOf("ERROR") < 0 &&
+        response.indexOf("?") < 0) {
+      
+      DEBUG_PORT.print("✓ PID 0x");
+      if (pid < 0x10) DEBUG_PORT.print("0");
+      DEBUG_PORT.print(pid, HEX);
+      DEBUG_PORT.print(": ");
+      DEBUG_PORT.println(commonPIDs[i].name);
+      foundCount++;
+    }
+  }
+  
+  DEBUG_PORT.println("\n========================================");
+  DEBUG_PORT.print("GEFUNDEN: ");
+  DEBUG_PORT.print(foundCount);
+  DEBUG_PORT.print(" von ");
+  DEBUG_PORT.print(numPIDs);
+  DEBUG_PORT.println(" geprüften PIDs");
+  DEBUG_PORT.println("========================================\n");
+#endif
+}
+
+//////////////////////////////////////////////////////////////////////////
 // Build Constructor
 //////////////////////////////////////////////////////////////////////////
 
@@ -1173,6 +1275,9 @@ digitalWrite(12, LOW);
     {
       DEBUG_PORT.println(F("Connected to ELM327"));
       elm327_ready = true;
+      
+      // Debug: Liste alle verfügbaren PIDs auf (nur wenn DEBUG_PIDS aktiviert)
+      debugAvailablePIDs();
     }
   }
 
@@ -1324,6 +1429,9 @@ digitalWrite(12, LOW);
 
   drawBoost(0.00);
   drawCoolant(00);
+  
+  // Initial Durchschnittsverbrauch anzeigen (0.0 L/100km)
+  drawAvgFuelEconomy(0.0);
 
 }
 
@@ -1615,6 +1723,26 @@ void loop()
         Serial.println("Speed too low for fuel economy calculation");
       }
       
+      obd_state = RPM;
+    }
+    else if (myELM327.nb_rx_state != ELM_GETTING_MSG)
+    {
+      myELM327.printError();
+      obd_state = RPM;
+    }
+    break;
+  }
+
+  case RPM:
+  {
+    float rpm = myELM327.rpm();
+
+    if (myELM327.nb_rx_state == ELM_SUCCESS)
+    {
+      engineRPM = rpm;  // Globale Variable für Motor-Erkennung aktualisieren
+      Serial.print("RPM: ");
+      Serial.print(rpm);
+      Serial.println(" U/min");
       obd_state = LOAD;
     }
     else if (myELM327.nb_rx_state != ELM_GETTING_MSG)
@@ -1622,6 +1750,7 @@ void loop()
       myELM327.printError();
       obd_state = LOAD;
     }
+
     break;
   }
   }
